@@ -19,10 +19,10 @@ import {
   MinusCircle,
   Database,
   AlertCircle,
-  CheckCircle2,
-  Loader2,
-  Trash2,
-  Edit3,
+  CheckCircle,
+  Loader,
+  Trash,
+  Edit,
   X,
   AlertTriangle,
   Folder,
@@ -54,8 +54,9 @@ const manualConfig = {
   storageBucket: "gemini-storage-f3e00.firebasestorage.app",
   messagingSenderId: "57229786361",
   appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
-  measurementId: "G-H42133M94Y",
+  measurementId: "G-H42133M94Y"
 };
+
 
 // --- Firebase 初始化邏輯 ---
 let firebaseConfig;
@@ -127,10 +128,11 @@ const exportToCSV = (data, fileName = "inventory_export") => {
 
 // --- 工具函式：產生匯入範本 ---
 const downloadImportTemplate = () => {
+  // 欄位對應更新後的名稱
   const headers = [
     "產品名稱",
     "尺寸",
-    "分類(成品/零件)",
+    "分類(整組/零件)",
     "材質",
     "材質規格",
     "顏色(黑色/有色請填色號)",
@@ -180,7 +182,7 @@ function NotificationModal({ type, text, onClose }) {
             </div>
           ) : (
             <div className="bg-green-100 p-3 rounded-full mb-3">
-              <CheckCircle2 size={40} className="text-green-600" />
+              <CheckCircle size={40} className="text-green-600" />
             </div>
           )}
           <h3
@@ -439,7 +441,7 @@ export default function App() {
               聚鴻塑膠庫存管理系統
             </h1>
           </div>
-          {loading && <Loader2 className="animate-spin" size={20} />}
+          {loading && <Loader className="animate-spin" size={20} />}
         </div>
       </header>
 
@@ -698,7 +700,7 @@ function TransactionForm({ mode, inventory, onSave }) {
           />
           {matchingVariants.length > 0 && !nameError && (
             <div className="absolute right-3 top-3.5 text-green-500">
-              <CheckCircle2 size={16} />
+              <CheckCircle size={16} />
             </div>
           )}
         </div>
@@ -845,7 +847,7 @@ function TransactionForm({ mode, inventory, onSave }) {
         }`}
       >
         {isSubmitting ? (
-          <Loader2 className="animate-spin mx-auto" size={24} />
+          <Loader className="animate-spin mx-auto" size={24} />
         ) : (
           `確認${mode === "inbound" ? "入庫" : "出庫"}`
         )}
@@ -876,7 +878,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
   const [formName, setFormName] = useState("");
   const [formSizeVal, setFormSizeVal] = useState("");
   const [formSizeUnit, setFormSizeUnit] = useState("英吋");
-  const [formCategory, setFormCategory] = useState("零件"); // 預設 零件
+  const [formCategory, setFormCategory] = useState("零件");
   const [formMaterial, setFormMaterial] = useState("");
   const [formSpec, setFormSpec] = useState("");
   const [formQty, setFormQty] = useState("0");
@@ -1087,7 +1089,6 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
           .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
           .map((c) => c.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
 
-        // 欄位順序(10): 名稱, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
         if (cols.length >= 7) {
           try {
             const newItemRef = doc(
@@ -1254,7 +1255,9 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
         setFormSizeVal(item.size || "");
         setFormSizeUnit("英吋");
       }
-      setFormCategory(item.category || "零件");
+      setFormCategory(
+        item.category === "整組" ? "成品" : item.category || "零件"
+      );
       setFormMaterial(item.material || "");
       setFormSpec(item.spec || "");
       setFormQty(item.quantity);
@@ -1274,7 +1277,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
       setFormName(currentFolder ? currentFolder : "");
       setFormSizeVal("");
       setFormSizeUnit("英吋");
-      setFormCategory("零件"); // 預設 零件
+      setFormCategory("零件");
       setFormMaterial("");
       setFormSpec("");
       setFormQty("0");
@@ -1515,12 +1518,11 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                         : "bg-red-50 text-red-600"
                     }`}
                   >
-                    <Trash2 size={14} />{" "}
-                    {isDeleteMode ? "取消刪除" : "刪除項目"}
+                    <Trash size={14} /> {isDeleteMode ? "取消刪除" : "刪除項目"}
                   </button>
                 )}
 
-                {/* 4. 新增 */}
+                {/* 4. 新增 (原為最後一個，保留) */}
                 <button
                   onClick={() => openAddModal(null)}
                   className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95"
@@ -1923,7 +1925,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                             onClick={() => openAddModal(item)}
                             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm border border-transparent hover:border-slate-200"
                           >
-                            <Edit3 size={14} />
+                            <Edit size={14} />
                           </button>
                         </td>
                       )}
@@ -2158,15 +2160,40 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
 
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">
-                  庫存數量
+                  備註 (選填)
                 </label>
                 <input
-                  type="number"
-                  value={formQty}
-                  onChange={(e) => setFormQty(e.target.value)}
+                  type="text"
+                  value={formRemarks}
+                  onChange={(e) => setFormRemarks(e.target.value)}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                  required
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">
+                    庫存數量
+                  </label>
+                  <input
+                    type="number"
+                    value={formQty}
+                    onChange={(e) => setFormQty(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">
+                    安全庫存
+                  </label>
+                  <input
+                    type="number"
+                    value={formSafetyStock}
+                    onChange={(e) => setFormSafetyStock(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
               </div>
             </div>
 
