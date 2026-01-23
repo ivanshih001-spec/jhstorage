@@ -1489,21 +1489,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                    )}
                 </div>
               </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">備註 (選填)</label>
-                <input type="text" value={formRemarks} onChange={e => setFormRemarks(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">庫存數量</label>
-                  <input type="number" value={formQty} onChange={e => setFormQty(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">安全庫存</label>
-                  <input type="number" value={formSafetyStock} onChange={e => setFormSafetyStock(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">庫存數量</label>
+                <input type="number" value={formQty} onChange={e => setFormQty(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
               </div>
             </div>
 
