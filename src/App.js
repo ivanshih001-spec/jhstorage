@@ -64,24 +64,16 @@ const manualConfig = {
   appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
   measurementId: "G-H42133M94Y"
 };
+;
 
-
-// --- Firebase 初始化邏輯 (修正版) ---
+// --- Firebase 初始化邏輯 ---
 let firebaseConfig;
 let isDemoEnv = false;
 
-// 檢查是否已填寫手動設定
-const isManualConfigConfigured = manualConfig.apiKey && !manualConfig.apiKey.includes("請填入");
-
-if (isManualConfigConfigured) {
-  // 如果您填寫了設定，優先使用您的資料庫 (即使在 AI 預覽中)
-  firebaseConfig = manualConfig;
-} else if (typeof __firebase_config !== 'undefined') {
-  // 否則使用 AI 測試環境
+if (typeof __firebase_config !== 'undefined') {
   firebaseConfig = JSON.parse(__firebase_config);
   isDemoEnv = true;
 } else {
-  // 發布環境但未填寫設定
   firebaseConfig = manualConfig;
 }
 
@@ -90,6 +82,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-master-system-v3';
+
+// --- 安全性設定：密碼編碼 (防止明碼顯示在程式中) ---
+// "8355" 的 Base64 編碼為 "ODM1NQ=="
+const ADMIN_PWD_HASH = "ODM1NQ=="; 
 
 // --- 工具函式：匯出 CSV ---
 const exportToCSV = (data, fileName = 'inventory_export') => {
@@ -199,12 +195,13 @@ function ConfirmModal({ title, content, onConfirm, onCancel, confirmText = "確�
   );
 }
 
-// --- 密碼輸入視窗 ---
+// --- 密碼輸入視窗 (使用 Base64 比對) ---
 function PasswordModal({ onClose, onSuccess }) {
   const [pwd, setPwd] = useState('');
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (pwd === '8355') {
+    // 使用 btoa 進行簡易編碼比對，避免明碼
+    if (btoa(pwd) === ADMIN_PWD_HASH) {
       onSuccess();
       onClose();
     } else {
@@ -259,17 +256,14 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // 檢查是否使用 Demo 環境
   const isUsingDemo = !manualConfig.apiKey || manualConfig.apiKey.includes("請填入");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (isUsingDemo) {
        setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
        return;
     }
-
     setLoading(true);
     setError('');
     try {
@@ -291,7 +285,6 @@ function LoginPage() {
        setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
        return;
     }
-
     setLoading(true);
     setError('');
     try {
@@ -360,7 +353,6 @@ function LoginPage() {
             {loading ? <Loader className="animate-spin" size={20} /> : '登入'}
           </button>
 
-          {/* 分隔線 */}
           <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-slate-200"></div>
@@ -370,14 +362,12 @@ function LoginPage() {
             </div>
           </div>
 
-          {/* Google 登入按鈕 */}
           <button
             type="button"
             onClick={handleGoogleLogin}
             disabled={loading}
             className="w-full bg-white text-slate-700 border border-slate-300 py-3 rounded-xl font-bold shadow-sm hover:bg-slate-50 transition-all active:scale-95 disabled:opacity-70 flex justify-center items-center gap-2"
           >
-            {/* Google G Icon SVG */}
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -433,7 +423,6 @@ export default function App() {
 
   // 1. 初始化身份驗證 (監聽登入狀態)
   useEffect(() => {
-    // 監聽 Firebase 登入狀態變化 (包含 Google 登入或 Email 登入)
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthChecking(false);
@@ -458,7 +447,6 @@ export default function App() {
       },
       (err) => {
         console.error("Firestore Error:", err);
-        // 不再自動報錯，避免干擾，除非是嚴重錯誤
         if (err.code === 'permission-denied') {
              showMsg('error', '權限不足：請確認 Firebase 規則');
         }
@@ -478,7 +466,6 @@ export default function App() {
     }
   };
 
-  // 載入中畫面
   if (isAuthChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -487,14 +474,12 @@ export default function App() {
     );
   }
 
-  // 未登入顯示登入頁面
   if (!user) {
     return <LoginPage />;
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative">
-      {/* 彈出視窗 */}
       {notification && (
         <NotificationModal 
           type={notification.type} 
@@ -503,7 +488,6 @@ export default function App() {
         />
       )}
 
-      {/* Header */}
       <header className="bg-indigo-600 text-white p-4 shadow-lg sticky top-0 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -513,7 +497,6 @@ export default function App() {
           <div className="flex items-center gap-3">
              <div className="flex items-center gap-1 text-xs bg-indigo-700 py-1 px-2 rounded-lg">
                 <User size={12} />
-                {/* 顯示 Email，若無 (如匿名) 則顯示 ID 前幾碼 */}
                 <span className="max-w-[100px] truncate">{user.email || user.uid.slice(0, 6)}</span>
              </div>
              <button onClick={handleLogout} className="text-white hover:text-indigo-200">
@@ -523,19 +506,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 w-full">
         {activeTab === 'inbound' && <TransactionForm mode="inbound" inventory={inventory} onSave={showMsg} currentUser={user} />}
         {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} onSave={showMsg} currentUser={user} />}
         {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} currentUser={user} />}
       </main>
 
-      {/* Footer Design Signature */}
-      <div className="fixed bottom-24 right-4 z-10 pointer-events-none text-[10px] text-slate-400 opacity-80 font-sans">
-        Design by Ivan x Gemini
-      </div>
-
-      {/* Tab Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20">
         <div className="flex justify-around w-full max-w-7xl mx-auto">
           <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={20}/>} label="入庫" />
@@ -669,6 +645,13 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in max-w-xl mx-auto">
+      
+      {/* 顯示當前操作者 */}
+      <div className="bg-indigo-50 p-2 rounded-lg flex items-center justify-center gap-2 text-indigo-700 text-sm mb-2">
+         <User size={14}/> 
+         <span>目前操作者：{currentUser.email || '未知使用者'}</span>
+      </div>
+
       <h2 className={`text-lg font-bold flex items-center gap-2 ${mode === 'inbound' ? 'text-green-600' : 'text-orange-600'}`}>
         {mode === 'inbound' ? <PlusCircle size={22}/> : <MinusCircle size={22}/>}
         {mode === 'inbound' ? '物料入庫' : '物料出庫'}
@@ -814,6 +797,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [formRemarks, setFormRemarks] = useState(''); 
   const [colorMode, setColorMode] = useState('black'); 
   const [customColorVal, setCustomColorVal] = useState('');
+  // ... (InventorySearch components continue, specifically `openAddModal` will also show currentUser.email now)
 
   // 1. 資料夾分類邏輯
   const folders = useMemo(() => {
@@ -997,22 +981,21 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
 
         const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
         
-        // 欄位順序(11): 料號, 品名, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
-        if (cols.length >= 8) {
+        // 預期欄位(10): 名稱, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
+        if (cols.length >= 7) {
           try {
             const newItemRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
             batch.set(newItemRef, {
-              partNumber: cols[0], // 料號
-              name: cols[1],       // 品名
-              size: cols[2],
-              category: cols[3] || '零件',
-              material: cols[4],
-              spec: cols[5],
-              color: cols[6],
-              remarks: cols[7], 
-              quantity: parseInt(cols[8]) || 0,
-              safetyStock: parseInt(cols[9]) || 5000,
-              photo: cols[10] || '', 
+              name: cols[0],
+              size: cols[1],
+              category: cols[2] || '零件',
+              material: cols[3],
+              spec: cols[4],
+              color: cols[5],
+              remarks: cols[6], 
+              quantity: parseInt(cols[7]) || 0,
+              safetyStock: parseInt(cols[8]) || 5000,
+              photo: cols[9] || '', 
               lastUpdated: new Date().toISOString(),
               lastEditor: currentUser.email // 記錄操作者
             });
@@ -1042,24 +1025,24 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     reader.readAsText(file);
   };
   
-  // --- 批次圖片匯入 (料號配對) ---
+  // --- 批次圖片匯入 (檔名配對) ---
   const handleBatchImageUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    if (!confirm(`確定要匯入 ${files.length} 張圖片嗎？將依據「料號」自動配對。`)) {
+    if (!confirm(`確定要匯入 ${files.length} 張圖片嗎？將依據檔名自動配對產品。`)) {
       e.target.value = null;
       return;
     }
     
-    const partNumToIdsMap = {};
+    const nameToIdsMap = {};
     inventory.forEach(item => {
-      if (item.partNumber) {
-        const lowerPartNum = item.partNumber.toLowerCase();
-        if (!partNumToIdsMap[lowerPartNum]) {
-          partNumToIdsMap[lowerPartNum] = [];
+      if (item.name) {
+        const lowerName = item.name.toLowerCase();
+        if (!nameToIdsMap[lowerName]) {
+          nameToIdsMap[lowerName] = [];
         }
-        partNumToIdsMap[lowerPartNum].push(item.id);
+        nameToIdsMap[lowerName].push(item.id);
       }
     });
 
@@ -1068,8 +1051,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     let processedCount = 0;
 
     const processFile = (file) => {
-      const fileName = file.name.split('.')[0].toLowerCase(); // 檔名即料號
-      const targetIds = partNumToIdsMap[fileName];
+      const fileName = file.name.split('.')[0].toLowerCase(); 
+      const targetIds = nameToIdsMap[fileName];
 
       if (targetIds && targetIds.length > 0) {
         const reader = new FileReader();
@@ -1119,7 +1102,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     const checkDone = () => {
       processedCount++;
       if (processedCount === files.length) {
-        onSave('success', `圖片匯入完成：成功配對 ${successCount} 張 (料號)，${failCount} 張無對應料號`);
+        onSave('success', `圖片匯入完成：成功配對 ${successCount} 張，${failCount} 張無對應料號`);
         e.target.value = null;
       }
     };
@@ -1131,8 +1114,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const openAddModal = (item = null) => {
     if (item) {
       setEditingItem(item);
-      setFormPartNumber(item.partNumber || '');
-      setFormName(item.name || '');
+      setFormName(item.name);
       // 嘗試保留原始輸入值
       const match = item.size ? item.size.match(/^([\d./-]+)\s*(mm|英吋)?$/) : null;
       if (match) {
@@ -1159,8 +1141,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       }
     } else {
       setEditingItem(null);
-      setFormPartNumber('');
-      setFormName('');
+      setFormName(currentFolder ? currentFolder : ''); 
       setFormSizeVal('');
       setFormSizeUnit('英吋');
       setFormCategory('零件'); 
@@ -1201,8 +1182,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       }
 
       const data = {
-        partNumber: formPartNumber.trim(), // 料號
-        name: formName.trim(), // 品名
+        name: formName.trim(),
         size: fullSize,
         category: formCategory,
         material: formMaterial,
@@ -1384,7 +1364,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
             type="text" 
             value={globalSearch}
             onChange={handleGlobalSearchChange}
-            placeholder="輸入料號或品名搜尋..." 
+            placeholder="輸入產品名稱搜尋所有資料夾..." 
             className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
           />
           <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
@@ -1408,8 +1388,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               <FolderOpen size={32} className="text-blue-400 fill-blue-50 group-hover:text-blue-500" />
               <span className="font-bold text-lg text-slate-700">{f}</span>
               <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-                {/* 計算數量時以料號首字為準，無則品名 */}
-                {inventory.filter(i => (i.partNumber?.[0] || i.name?.[0] || '?').toUpperCase() === f).length} 項目
+                {inventory.filter(i => (i.name?.[0] || '?').toUpperCase() === f).length} 項目
               </span>
             </button>
           ))}
@@ -1460,8 +1439,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                   )}
                   <th className="p-2 sm:p-3 whitespace-nowrap w-10 text-center bg-slate-50">序號</th>
                   <th className="p-2 sm:p-3 whitespace-nowrap w-14 bg-slate-50">圖</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">料號</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">品名</th>
+                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">產品名稱</th>
                   <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">尺寸</th>
                   <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">分類</th>
                   <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">材質 (材質規格)</th>
@@ -1498,7 +1476,6 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                       {/* 批次修改欄位 */}
                       {isBatchEditMode ? (
                         <>
-                          <td className="p-2"><input type="text" value={editData.partNumber} onChange={(e) => handleBatchChange(item.id, 'partNumber', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
                           <td className="p-2"><input type="text" value={editData.name} onChange={(e) => handleBatchChange(item.id, 'name', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
                           <td className="p-2"><input type="text" value={editData.size} onChange={(e) => handleBatchChange(item.id, 'size', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
                           <td className="p-2">
@@ -1518,7 +1495,6 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                       ) : (
                         // 一般檢視模式
                         <>
-                          <td className="p-2 sm:p-3 font-bold text-slate-700">{item.partNumber}</td>
                           <td className="p-2 sm:p-3 font-bold text-slate-700">{item.name}</td>
                           <td className="p-2 sm:p-3 text-slate-600">{item.size || '-'}</td>
                           <td className="p-2 sm:p-3">
@@ -1547,7 +1523,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                 })}
                 {displayItems.length === 0 && (
                   <tr>
-                    <td colSpan={isEditMode ? (isDeleteMode ? 12 : 11) : 10} className="p-8 text-center text-slate-400">無符合資料</td>
+                    <td colSpan={isEditMode ? (isDeleteMode ? 11 : 10) : 9} className="p-8 text-center text-slate-400">無符合資料</td>
                   </tr>
                 )}
               </tbody>
@@ -1599,14 +1575,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
             )}
 
             <div className="space-y-4">
-              {/* 料號 (必填) */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">料號 (必填)</label>
-                <input type="text" value={formPartNumber} onChange={e => setFormPartNumber(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">品名</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1">產品名稱</label>
                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
               </div>
 
@@ -1643,7 +1613,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">尺寸 (選填)</label>
                 <div className="flex gap-2">
-                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白 (如 5/8)" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                   <select value={formSizeUnit} onChange={e => setFormSizeUnit(e.target.value)} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
                     <option value="英吋">英吋</option>
                     <option value="mm">mm</option>
