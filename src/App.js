@@ -40,7 +40,6 @@ import {
   Unlock,
   FileSpreadsheet,
   Upload,
-  // Images, // 移除這個可能導致建置錯誤的圖示
   CheckSquare,
   ShieldAlert,
   Save,
@@ -115,7 +114,7 @@ const exportToCSV = (data, fileName = 'inventory_export') => {
 
 // --- 工具函式：產生匯入範本 ---
 const downloadImportTemplate = () => {
-  const headers = ["產品名稱", "尺寸", "分類(整組/零件)", "材質", "材質規格", "顏色(黑色/有色請填色號)", "備註(可空白)", "庫存數量", "安全庫存(預設5000)", "照片(填入網址)"];
+  const headers = ["產品名稱", "尺寸", "分類(成品/零件)", "材質", "材質規格", "顏色(黑色/有色請填色號)", "備註(可空白)", "庫存數量", "安全庫存(預設5000)", "照片(填入網址)"];
   const exampleRow = ["範例螺絲A", "5/8", "零件", "不鏽鋼", "M5x10", "黑色", "無備註", "100", "5000", ""];
   const csvString = "\uFEFF" + headers.join(",") + "\n" + exampleRow.join(",");
   
@@ -348,11 +347,6 @@ export default function App() {
         {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} onSave={showMsg} />}
         {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} />}
       </main>
-
-      {/* Footer Design Signature */}
-      <div className="fixed bottom-24 right-4 z-10 pointer-events-none text-[10px] text-slate-400 opacity-80 font-sans">
-        Design by Ivan x Gemini
-      </div>
 
       {/* Tab Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20">
@@ -952,7 +946,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
         setFormSizeVal(item.size || ''); 
         setFormSizeUnit('英吋');
       }
-      setFormCategory(item.category === '整組' ? '成品' : (item.category || '零件')); 
+      setFormCategory(item.category === '成品' ? '整組' : (item.category || '零件')); 
       setFormMaterial(item.material || '');
       setFormSpec(item.spec || '');
       setFormQty(item.quantity);
