@@ -30,13 +30,12 @@ import {
   Palette,
   FolderOpen,
   Camera,
-  Image as ImageIcon, // 使用 ImageIcon 作為圖片圖示
+  Image as ImageIcon,
   Download,
   Lock,
   Unlock,
   FileSpreadsheet,
   Upload,
-  // Images, // 已移除此導致錯誤的圖示
   CheckSquare,
   ShieldAlert,
   Save,
@@ -77,9 +76,11 @@ const appId =
 
 // --- 工具函式：匯出 CSV ---
 const exportToCSV = (data, fileName = "inventory_export") => {
+  // 新增 "料號" 在最前，"產品名稱" 改為 "品名"
   const headers = [
     "序號",
-    "產品名稱",
+    "料號",
+    "品名",
     "尺寸",
     "分類",
     "材質",
@@ -96,7 +97,8 @@ const exportToCSV = (data, fileName = "inventory_export") => {
     const safe = (text) => `"${(text || "").toString().replace(/"/g, '""')}"`;
     return [
       index + 1,
-      safe(item.name),
+      safe(item.partNumber), // 料號
+      safe(item.name), // 品名
       safe(item.size),
       safe(item.category),
       safe(item.material),
@@ -127,8 +129,10 @@ const exportToCSV = (data, fileName = "inventory_export") => {
 
 // --- 工具函式：產生匯入範本 ---
 const downloadImportTemplate = () => {
+  // 更新範本欄位順序與名稱
   const headers = [
-    "產品名稱",
+    "料號",
+    "品名",
     "尺寸",
     "分類(成品/零件)",
     "材質",
@@ -140,6 +144,7 @@ const downloadImportTemplate = () => {
     "照片(填入網址)",
   ];
   const exampleRow = [
+    "A-001",
     "範例螺絲A",
     "5/8",
     "零件",
@@ -391,7 +396,11 @@ export default function App() {
           id: doc.id,
           ...doc.data(),
         }));
+        // 排序改為：料號 -> 品名 -> 尺寸 -> 材質
         const sortedItems = items.sort((a, b) => {
+          const partA = a.partNumber || "";
+          const partB = b.partNumber || "";
+          if (partA !== partB) return partA.localeCompare(partB);
           if (a.name !== b.name) return a.name.localeCompare(b.name);
           if ((a.size || "") !== (b.size || ""))
             return (a.size || "").localeCompare(b.size || "");
@@ -466,15 +475,12 @@ export default function App() {
             isDemoEnv={isDemoEnv}
           />
         )}
-        {/* 資料庫 Tab 已移除，合併至庫存查詢 */}
-        {activeTab === "database" && (
-          <DatabaseManagement
-            inventory={inventory}
-            onSave={showMsg}
-            isDemoEnv={isDemoEnv}
-          />
-        )}
       </main>
+
+      {/* Footer Design Signature */}
+      {/* <div className="fixed bottom-24 right-4 z-10 pointer-events-none text-[10px] text-slate-400 opacity-80 font-sans">
+        Design by Ivan x Gemini
+      </div> */}
 
       {/* Tab Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20">
@@ -521,7 +527,7 @@ function NavButton({ active, onClick, icon, label }) {
 
 // --- 入庫與出庫共用表單 ---
 function TransactionForm({ mode, inventory, onSave }) {
-  const [formName, setFormName] = useState("");
+  const [formPartNumber, setFormPartNumber] = useState(""); // 改用料號搜尋
   const [selectedAttr, setSelectedAttr] = useState({
     size: "",
     category: "",
@@ -533,12 +539,13 @@ function TransactionForm({ mode, inventory, onSave }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nameError, setNameError] = useState("");
 
+  // 1. 根據輸入的料號，找出資料庫中所有匹配的項目
   const matchingVariants = useMemo(() => {
-    if (!formName) return [];
+    if (!formPartNumber) return [];
     return inventory.filter(
-      (i) => i.name?.toLowerCase() === formName.trim().toLowerCase()
+      (i) => i.partNumber?.toLowerCase() === formPartNumber.trim().toLowerCase()
     );
-  }, [formName, inventory]);
+  }, [formPartNumber, inventory]);
 
   const options = useMemo(() => {
     return {
@@ -561,8 +568,8 @@ function TransactionForm({ mode, inventory, onSave }) {
     );
   }, [matchingVariants, selectedAttr]);
 
-  const handleNameChange = (val) => {
-    setFormName(val);
+  const handlePartNumberChange = (val) => {
+    setFormPartNumber(val);
     setNameError("");
     setSelectedAttr({
       size: "",
@@ -575,7 +582,7 @@ function TransactionForm({ mode, inventory, onSave }) {
     if (!val.trim()) return;
 
     const exists = inventory.some(
-      (i) => i.name?.toLowerCase() === val.trim().toLowerCase()
+      (i) => i.partNumber?.toLowerCase() === val.trim().toLowerCase()
     );
     if (!exists) {
       setNameError("錯誤：資料庫無此料號");
@@ -601,7 +608,7 @@ function TransactionForm({ mode, inventory, onSave }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const qty = parseInt(quantity);
-    if (!formName || isNaN(qty) || qty <= 0) {
+    if (!formPartNumber || isNaN(qty) || qty <= 0) {
       onSave("error", "請填寫正確資訊");
       return;
     }
@@ -641,7 +648,7 @@ function TransactionForm({ mode, inventory, onSave }) {
           `已${mode === "inbound" ? "入庫" : "出庫"}並更新庫存`
         );
         setQuantity("");
-        setFormName("");
+        setFormPartNumber("");
         setSelectedAttr({
           size: "",
           category: "",
@@ -682,17 +689,17 @@ function TransactionForm({ mode, inventory, onSave }) {
         {mode === "inbound" ? "物料入庫" : "物料出庫"}
       </h2>
 
-      {/* 產品名稱 */}
+      {/* 料號輸入 */}
       <div>
         <label className="block text-xs font-bold text-slate-400 mb-1">
-          產品名稱
+          料號
         </label>
         <div className="relative">
           <input
             type="text"
-            value={formName}
-            onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="輸入料號 (如: S1)"
+            value={formPartNumber}
+            onChange={(e) => handlePartNumberChange(e.target.value)}
+            placeholder="輸入料號 (如: A001)"
             className={`w-full p-3 bg-slate-50 border rounded-xl focus:ring-2 focus:outline-none transition-colors ${
               nameError
                 ? "border-red-300 focus:ring-red-200 bg-red-50"
@@ -714,6 +721,15 @@ function TransactionForm({ mode, inventory, onSave }) {
 
       {matchingVariants.length > 0 && !nameError && (
         <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+          {/* 顯示對應的品名 (唯讀) */}
+          <div className="text-center mb-2">
+            <span className="text-xs text-slate-400">對應品名</span>
+            <p className="text-lg font-bold text-slate-700">
+              {matchingVariants[0].name}
+            </p>
+          </div>
+
+          {/* 顯示產品照片 */}
           {targetItem && targetItem.photo && (
             <div className="flex justify-center mb-4 bg-gray-50 p-2 rounded-lg border border-slate-200">
               <div className="w-32 h-32 relative bg-white rounded-md border border-slate-200 overflow-hidden">
@@ -876,10 +892,11 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
   // 編輯/新增相關狀態
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [formPartNumber, setFormPartNumber] = useState("");
   const [formName, setFormName] = useState("");
   const [formSizeVal, setFormSizeVal] = useState("");
   const [formSizeUnit, setFormSizeUnit] = useState("英吋");
-  const [formCategory, setFormCategory] = useState("零件"); // 預設改為 零件
+  const [formCategory, setFormCategory] = useState("零件");
   const [formMaterial, setFormMaterial] = useState("");
   const [formSpec, setFormSpec] = useState("");
   const [formQty, setFormQty] = useState("0");
@@ -889,11 +906,12 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
   const [colorMode, setColorMode] = useState("black");
   const [customColorVal, setCustomColorVal] = useState("");
 
-  // 1. 資料夾分類邏輯
+  // 1. 資料夾分類邏輯 (使用料號首字)
   const folders = useMemo(() => {
     const map = {};
     inventory.forEach((item) => {
-      const key = (item.name?.[0] || "?").toUpperCase();
+      // 優先使用料號首字，若無料號則用品名
+      const key = (item.partNumber?.[0] || item.name?.[0] || "?").toUpperCase();
       if (!map[key]) map[key] = 0;
       map[key]++;
     });
@@ -904,18 +922,28 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
   const displayItems = useMemo(() => {
     let list = [];
     if (globalSearch.trim()) {
-      list = inventory.filter((item) =>
-        item.name?.toLowerCase().includes(globalSearch.toLowerCase())
+      // 搜尋料號 或 品名
+      list = inventory.filter(
+        (item) =>
+          item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+          item.name?.toLowerCase().includes(globalSearch.toLowerCase())
       );
     } else if (currentFolder) {
-      list = inventory.filter(
-        (item) => (item.name?.[0] || "?").toUpperCase() === currentFolder
-      );
+      list = inventory.filter((item) => {
+        const key = (
+          item.partNumber?.[0] ||
+          item.name?.[0] ||
+          "?"
+        ).toUpperCase();
+        return key === currentFolder;
+      });
     } else {
       return [];
     }
 
     return list.sort((a, b) => {
+      if (a.partNumber !== b.partNumber)
+        return (a.partNumber || "").localeCompare(b.partNumber || "");
       if (a.name !== b.name) return a.name.localeCompare(b.name);
       if ((a.size || "") !== (b.size || ""))
         return (a.size || "").localeCompare(b.size || "");
@@ -1090,23 +1118,24 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
           .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
           .map((c) => c.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
 
-        // 預期欄位(10): 名稱, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
-        if (cols.length >= 7) {
+        // 欄位順序(11): 料號, 品名, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
+        if (cols.length >= 8) {
           try {
             const newItemRef = doc(
               collection(db, "artifacts", appId, "public", "data", "inventory")
             );
             batch.set(newItemRef, {
-              name: cols[0],
-              size: cols[1],
-              category: cols[2] || "零件",
-              material: cols[3],
-              spec: cols[4],
-              color: cols[5],
-              remarks: cols[6],
-              quantity: parseInt(cols[7]) || 0,
-              safetyStock: parseInt(cols[8]) || 5000,
-              photo: cols[9] || "",
+              partNumber: cols[0], // 料號
+              name: cols[1], // 品名
+              size: cols[2],
+              category: cols[3] || "零件",
+              material: cols[4],
+              spec: cols[5],
+              color: cols[6],
+              remarks: cols[7],
+              quantity: parseInt(cols[8]) || 0,
+              safetyStock: parseInt(cols[9]) || 5000,
+              photo: cols[10] || "",
               lastUpdated: new Date().toISOString(),
             });
             batchCount++;
@@ -1135,26 +1164,26 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
     reader.readAsText(file);
   };
 
-  // --- 批次圖片匯入 (檔名配對) ---
+  // --- 批次圖片匯入 (料號配對) ---
   const handleBatchImageUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
     if (
-      !confirm(`確定要匯入 ${files.length} 張圖片嗎？將依據檔名自動配對產品。`)
+      !confirm(`確定要匯入 ${files.length} 張圖片嗎？將依據「料號」自動配對。`)
     ) {
       e.target.value = null;
       return;
     }
 
-    const nameToIdsMap = {};
+    const partNumToIdsMap = {};
     inventory.forEach((item) => {
-      if (item.name) {
-        const lowerName = item.name.toLowerCase();
-        if (!nameToIdsMap[lowerName]) {
-          nameToIdsMap[lowerName] = [];
+      if (item.partNumber) {
+        const lowerPartNum = item.partNumber.toLowerCase();
+        if (!partNumToIdsMap[lowerPartNum]) {
+          partNumToIdsMap[lowerPartNum] = [];
         }
-        nameToIdsMap[lowerName].push(item.id);
+        partNumToIdsMap[lowerPartNum].push(item.id);
       }
     });
 
@@ -1163,8 +1192,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
     let processedCount = 0;
 
     const processFile = (file) => {
-      const fileName = file.name.split(".")[0].toLowerCase();
-      const targetIds = nameToIdsMap[fileName];
+      const fileName = file.name.split(".")[0].toLowerCase(); // 檔名即料號
+      const targetIds = partNumToIdsMap[fileName];
 
       if (targetIds && targetIds.length > 0) {
         const reader = new FileReader();
@@ -1232,7 +1261,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
       if (processedCount === files.length) {
         onSave(
           "success",
-          `圖片匯入完成：成功配對 ${successCount} 張，${failCount} 張無對應料號`
+          `圖片匯入完成：成功配對 ${successCount} 張 (料號)，${failCount} 張無對應料號`
         );
         e.target.value = null;
       }
@@ -1245,7 +1274,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
   const openAddModal = (item = null) => {
     if (item) {
       setEditingItem(item);
-      setFormName(item.name);
+      setFormPartNumber(item.partNumber || "");
+      setFormName(item.name || "");
       // 嘗試保留原始輸入值
       const match = item.size
         ? item.size.match(/^([\d./-]+)\s*(mm|英吋)?$/)
@@ -1258,7 +1288,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
         setFormSizeUnit("英吋");
       }
       setFormCategory(
-        item.category === "成品" ? "整組" : item.category || "零件"
+        item.category === "整組" ? "成品" : item.category || "零件"
       );
       setFormMaterial(item.material || "");
       setFormSpec(item.spec || "");
@@ -1276,7 +1306,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
       }
     } else {
       setEditingItem(null);
-      setFormName(currentFolder ? currentFolder : "");
+      setFormPartNumber("");
+      setFormName("");
       setFormSizeVal("");
       setFormSizeUnit("英吋");
       setFormCategory("零件");
@@ -1317,7 +1348,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
       }
 
       const data = {
-        name: formName.trim(),
+        partNumber: formPartNumber.trim(), // 料號
+        name: formName.trim(), // 品名
         size: fullSize,
         category: formCategory,
         material: formMaterial,
@@ -1555,7 +1587,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
             type="text"
             value={globalSearch}
             onChange={handleGlobalSearchChange}
-            placeholder="輸入產品名稱搜尋所有資料夾..."
+            placeholder="輸入料號或品名搜尋..."
             className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
           />
           <Search
@@ -1590,7 +1622,12 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
               <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
                 {
                   inventory.filter(
-                    (i) => (i.name?.[0] || "?").toUpperCase() === f
+                    (i) =>
+                      (
+                        i.partNumber?.[0] ||
+                        i.name?.[0] ||
+                        "?"
+                      ).toUpperCase() === f
                   ).length
                 }{" "}
                 項目
@@ -1690,7 +1727,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                     圖
                   </th>
                   <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">
-                    產品名稱
+                    料號
+                  </th>
+                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">
+                    品名
                   </th>
                   <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">
                     尺寸
@@ -1764,6 +1804,20 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                       {/* 批次修改欄位 */}
                       {isBatchEditMode ? (
                         <>
+                          <td className="p-2">
+                            <input
+                              type="text"
+                              value={editData.partNumber}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "partNumber",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full border rounded p-1 text-xs"
+                            />
+                          </td>
                           <td className="p-2">
                             <input
                               type="text"
@@ -1883,6 +1937,9 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                         // 一般檢視模式
                         <>
                           <td className="p-2 sm:p-3 font-bold text-slate-700">
+                            {item.partNumber}
+                          </td>
+                          <td className="p-2 sm:p-3 font-bold text-slate-700">
                             {item.name}
                           </td>
                           <td className="p-2 sm:p-3 text-slate-600">
@@ -1937,7 +1994,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                 {displayItems.length === 0 && (
                   <tr>
                     <td
-                      colSpan={isEditMode ? (isDeleteMode ? 11 : 10) : 9}
+                      colSpan={isEditMode ? (isDeleteMode ? 12 : 11) : 10}
                       className="p-8 text-center text-slate-400"
                     >
                       無符合資料
@@ -2006,9 +2063,23 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
             )}
 
             <div className="space-y-4">
+              {/* 料號 (必填) */}
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">
-                  產品名稱
+                  料號 (必填)
+                </label>
+                <input
+                  type="text"
+                  value={formPartNumber}
+                  onChange={(e) => setFormPartNumber(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">
+                  品名
                 </label>
                 <input
                   type="text"
@@ -2059,11 +2130,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
                 </label>
                 <div className="flex gap-2">
                   <input
-                    type="number"
-                    step="any"
+                    type="text"
                     value={formSizeVal}
                     onChange={(e) => setFormSizeVal(e.target.value)}
-                    placeholder="可空白"
+                    placeholder="可空白 (如 5/8)"
                     className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
                   <select
@@ -2162,15 +2232,40 @@ function InventorySearch({ inventory, onSave, isDemoEnv }) {
 
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">
-                  庫存數量
+                  備註 (選填)
                 </label>
                 <input
-                  type="number"
-                  value={formQty}
-                  onChange={(e) => setFormQty(e.target.value)}
+                  type="text"
+                  value={formRemarks}
+                  onChange={(e) => setFormRemarks(e.target.value)}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                  required
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">
+                    庫存數量
+                  </label>
+                  <input
+                    type="number"
+                    value={formQty}
+                    onChange={(e) => setFormQty(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">
+                    安全庫存
+                  </label>
+                  <input
+                    type="number"
+                    value={formSafetyStock}
+                    onChange={(e) => setFormSafetyStock(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
               </div>
             </div>
 
