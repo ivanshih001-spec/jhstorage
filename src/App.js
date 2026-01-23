@@ -14,8 +14,8 @@ import {
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
-  signInWithPopup,      // 新增：彈出視窗登入
-  GoogleAuthProvider,   // 新增：Google 驗證提供者
+  signInWithPopup,      
+  GoogleAuthProvider,   
   signOut,
   onAuthStateChanged 
 } from 'firebase/auth';
@@ -66,14 +66,22 @@ const manualConfig = {
 };
 
 
-// --- Firebase 初始化邏輯 ---
+// --- Firebase 初始化邏輯 (修正版) ---
 let firebaseConfig;
 let isDemoEnv = false;
 
-if (typeof __firebase_config !== 'undefined') {
+// 檢查是否已填寫手動設定
+const isManualConfigConfigured = manualConfig.apiKey && !manualConfig.apiKey.includes("請填入");
+
+if (isManualConfigConfigured) {
+  // 如果您填寫了設定，優先使用您的資料庫 (即使在 AI 預覽中)
+  firebaseConfig = manualConfig;
+} else if (typeof __firebase_config !== 'undefined') {
+  // 否則使用 AI 測試環境
   firebaseConfig = JSON.parse(__firebase_config);
   isDemoEnv = true;
 } else {
+  // 發布環境但未填寫設定
   firebaseConfig = manualConfig;
 }
 
@@ -191,7 +199,7 @@ function ConfirmModal({ title, content, onConfirm, onCancel, confirmText = "確�
   );
 }
 
-// --- 密碼輸入視窗 (管理員功能用) ---
+// --- 密碼輸入視窗 ---
 function PasswordModal({ onClose, onSuccess }) {
   const [pwd, setPwd] = useState('');
   const handleSubmit = (e) => {
@@ -245,24 +253,33 @@ function ImagePreviewModal({ src, onClose }) {
 }
 
 // --- 登入畫面組件 ---
-function LoginPage({ onLogin }) {
+function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // 檢查是否使用 Demo 環境
+  const isUsingDemo = !manualConfig.apiKey || manualConfig.apiKey.includes("請填入");
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (isUsingDemo) {
+       setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
+       return;
+    }
+
     setLoading(true);
     setError('');
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential') {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('帳號或密碼錯誤');
       } else {
-        setError('登入失敗，請檢查網路或聯繫管理員');
+        setError(`登入失敗 (${err.code})`);
       }
     } finally {
       setLoading(false);
@@ -270,6 +287,11 @@ function LoginPage({ onLogin }) {
   };
 
   const handleGoogleLogin = async () => {
+    if (isUsingDemo) {
+       setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
+       return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -277,7 +299,7 @@ function LoginPage({ onLogin }) {
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
-      setError('Google 登入失敗: ' + err.message);
+      setError(`Google 登入失敗 (${err.code})：請確認已在 Firebase Console 新增此網域`);
     } finally {
       setLoading(false);
     }
@@ -292,12 +314,18 @@ function LoginPage({ onLogin }) {
           </div>
           <h1 className="text-2xl font-bold text-slate-800">聚鴻庫存系統</h1>
           <p className="text-slate-500 text-sm mt-1">請使用員工帳號登入</p>
+          
+          {isUsingDemo && (
+            <div className="mt-2 p-2 bg-yellow-50 text-yellow-700 text-xs rounded border border-yellow-200">
+               ⚠️ 注意：目前未設定 Firebase API Key，無法進行真實登入。請修改程式碼。
+            </div>
+          )}
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2">
-            <AlertCircle size={16} />
-            {error}
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-start gap-2 break-all">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -787,12 +815,11 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [colorMode, setColorMode] = useState('black'); 
   const [customColorVal, setCustomColorVal] = useState('');
 
-  // 1. 資料夾分類邏輯 (使用料號首字)
+  // 1. 資料夾分類邏輯
   const folders = useMemo(() => {
     const map = {};
     inventory.forEach(item => {
-      // 優先使用料號首字，若無料號則用品名
-      const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
+      const key = (item.name?.[0] || '?').toUpperCase();
       if (!map[key]) map[key] = 0;
       map[key]++;
     });
@@ -803,22 +830,16 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const displayItems = useMemo(() => {
     let list = [];
     if (globalSearch.trim()) {
-      // 搜尋料號 或 品名
       list = inventory.filter(item => 
-        item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) || 
         item.name?.toLowerCase().includes(globalSearch.toLowerCase())
       );
     } else if (currentFolder) {
-      list = inventory.filter(item => {
-        const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
-        return key === currentFolder;
-      });
+      list = inventory.filter(item => (item.name?.[0] || '?').toUpperCase() === currentFolder);
     } else {
       return [];
     }
 
     return list.sort((a, b) => {
-      if (a.partNumber !== b.partNumber) return (a.partNumber || '').localeCompare(b.partNumber || '');
       if (a.name !== b.name) return a.name.localeCompare(b.name);
       if ((a.size || '') !== (b.size || '')) return (a.size || '').localeCompare(b.size || '');
       return (a.material || '').localeCompare(b.material || '');
