@@ -85,13 +85,13 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-master-sys
 // --- 安全性設定：密碼編碼 ---
 const ADMIN_PWD_HASH = "ODM1NQ=="; 
 
-// --- 工具函式：簡化 Email 顯示 (只顯示 @ 前面) ---
+// --- 工具函式：簡化 Email 顯示 ---
 const formatUserName = (email) => {
   if (!email) return 'Guest';
   return email.split('@')[0];
 };
 
-// --- 工具函式：解析尺寸數值 (強化版排序邏輯) ---
+// --- 工具函式：解析尺寸數值 (強化版) ---
 const getSizeValue = (sizeStr) => {
   if (!sizeStr) return { type: 3, val: 0 }; // 空值排最後
   const s = sizeStr.toString().toLowerCase().trim();
@@ -103,7 +103,7 @@ const getSizeValue = (sizeStr) => {
   }
 
   // 2. 判斷是否為英吋/分數/純數字 (Type 1)
-  // 移除單位字元，保留數字、小數點、斜線、連字號
+  // 移除單位字元
   let clean = s.replace(/["inch英吋]/g, '').trim();
   let val = 0;
   let isNumeric = false;
@@ -153,37 +153,38 @@ const getSizeValue = (sizeStr) => {
   return { type: 2, val: s };
 };
 
-// --- 工具函式：全域排序邏輯 ---
+// --- 工具函式：全域排序邏輯 (修正版) ---
 const sortInventoryItems = (a, b) => {
-  // 第一順位：料號 (Part Number)
-  const partA = a.partNumber || '';
-  const partB = b.partNumber || '';
-  if (partA !== partB) return partA.localeCompare(partB);
+  // 1. 品名 (Name) - 優先將相同產品排在一起
+  const nameA = a.name || '';
+  const nameB = b.name || '';
+  const nameCompare = nameA.localeCompare(nameB, "zh-Hant");
+  if (nameCompare !== 0) return nameCompare;
   
-  // 第二順位：品名 (Name)
-  if (a.name !== b.name) return a.name.localeCompare(b.name);
-  
-  // 第三順位：尺寸 (Size) - 使用新的數值排序
+  // 2. 尺寸 (Size) - 數值排序 (這是您最在意的)
   const sizeA = getSizeValue(a.size);
   const sizeB = getSizeValue(b.size);
 
-  // 先比較類型 (mm(0) < inch/number(1) < other(2) < empty(3))
   if (sizeA.type !== sizeB.type) {
-    return sizeA.type - sizeB.type;
+    return sizeA.type - sizeB.type; // 類型優先順序：mm < 英吋 < 文字 < 空值
   }
-  
-  // 同類型比較數值 (數值由小到大，文字由A到Z)
   if (sizeA.type === 0 || sizeA.type === 1) {
-    return sizeA.val - sizeB.val;
+    return sizeA.val - sizeB.val; // 數值由小到大
   }
-  
-  // 其他類型比較字串
   if (sizeA.type === 2) {
-    return sizeA.val.localeCompare(sizeB.val);
+    return sizeA.val.localeCompare(sizeB.val); // 文字由 A 到 Z
   }
 
-  // 第四順位：材質 (Material)
-  return (a.material || '').localeCompare(b.material || '');
+  // 3. 材質
+  const matA = a.material || '';
+  const matB = b.material || '';
+  const matCompare = matA.localeCompare(matB, "zh-Hant");
+  if (matCompare !== 0) return matCompare;
+
+  // 4. 料號 (Part Number) - 最後才比對料號
+  const partA = a.partNumber || '';
+  const partB = b.partNumber || '';
+  return partA.localeCompare(partB);
 };
 
 
