@@ -9,7 +9,11 @@ import {
   increment, 
   onSnapshot,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  addDoc,   // 新增：寫入紀錄用
+  query,    // 新增：查詢紀錄用
+  orderBy,  // 新增：排序紀錄用
+  limit     // 新增：限制筆數
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -48,7 +52,8 @@ import {
   Save,
   Pencil,
   LogOut, 
-  User 
+  User,
+  History // 新增：歷史紀錄圖示
 } from 'lucide-react';
 
 // ==========================================
@@ -83,7 +88,8 @@ const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-master-system-v3';
 
 // --- 安全性設定：密碼編碼 ---
-const ADMIN_PWD_HASH = "ODM1NQ=="; 
+const ADMIN_PWD_HASH = "ODM1NQ=="; // 8355 (一般管理)
+const SUPER_ADMIN_PWD_HASH = "MDYwNQ=="; // 0605 (超級管理：可看紀錄)
 
 // --- 工具函式：簡化 Email 顯示 ---
 const formatUserName = (email) => {
@@ -91,24 +97,36 @@ const formatUserName = (email) => {
   return email.split('@')[0];
 };
 
-// --- 工具函式：解析尺寸數值 (強化版) ---
+// --- 工具函式：寫入操作紀錄 (Audit Log) ---
+const addAuditLog = async (action, productName, details, userEmail) => {
+  if (!userEmail) return;
+  try {
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), {
+      timestamp: new Date().toISOString(),
+      user: userEmail,
+      action: action,
+      product: productName || '多筆/未知',
+      details: details,
+    });
+  } catch (err) {
+    console.error("Log Error:", err);
+  }
+};
+
+// --- 工具函式：解析尺寸數值 ---
 const getSizeValue = (sizeStr) => {
-  if (!sizeStr) return { type: 3, val: 0 }; // 空值排最後
+  if (!sizeStr) return { type: 3, val: 0 }; 
   const s = sizeStr.toString().toLowerCase().trim();
 
-  // 1. 判斷是否為 mm (mm 先排，Type 0)
   if (s.endsWith('mm')) {
     const num = parseFloat(s.replace('mm', ''));
     return { type: 0, val: isNaN(num) ? 0 : num };
   }
 
-  // 2. 判斷是否為英吋/分數/純數字 (Type 1)
-  // 移除單位字元
   let clean = s.replace(/["inch英吋]/g, '').trim();
   let val = 0;
   let isNumeric = false;
 
-  // 處理 "1-1/2" 這種格式 (整數-分數)
   if (clean.includes('-') && clean.includes('/')) {
      const parts = clean.split('-');
      if (parts.length === 2) {
@@ -123,9 +141,7 @@ const getSizeValue = (sizeStr) => {
          }
        }
      }
-  } 
-  // 處理 "5/8", "3/4" 這種格式 (單純分數)
-  else if (clean.includes('/')) {
+  } else if (clean.includes('/')) {
     const fracParts = clean.split('/');
     if (fracParts.length === 2) {
       const numerator = parseFloat(fracParts[0]);
@@ -135,9 +151,7 @@ const getSizeValue = (sizeStr) => {
         isNumeric = true;
       }
     }
-  }
-  // 處理 "1", "2.5", "10" 這種格式 (純數字/小數)
-  else {
+  } else {
     const num = parseFloat(clean);
     if (!isNaN(num)) {
       val = num;
@@ -148,40 +162,34 @@ const getSizeValue = (sizeStr) => {
   if (isNumeric) {
     return { type: 1, val: val };
   }
-
-  // 3. 其他無法識別的格式 (排在英吋之後，Type 2)
   return { type: 2, val: s };
 };
 
-// --- 工具函式：全域排序邏輯 (修正版) ---
+// --- 工具函式：全域排序邏輯 ---
 const sortInventoryItems = (a, b) => {
-  // 1. 品名 (Name) - 優先將相同產品排在一起
   const nameA = a.name || '';
   const nameB = b.name || '';
   const nameCompare = nameA.localeCompare(nameB, "zh-Hant");
   if (nameCompare !== 0) return nameCompare;
   
-  // 2. 尺寸 (Size) - 數值排序 (這是您最在意的)
   const sizeA = getSizeValue(a.size);
   const sizeB = getSizeValue(b.size);
 
   if (sizeA.type !== sizeB.type) {
-    return sizeA.type - sizeB.type; // 類型優先順序：mm < 英吋 < 文字 < 空值
+    return sizeA.type - sizeB.type; 
   }
   if (sizeA.type === 0 || sizeA.type === 1) {
-    return sizeA.val - sizeB.val; // 數值由小到大
+    return sizeA.val - sizeB.val; 
   }
   if (sizeA.type === 2) {
-    return sizeA.val.localeCompare(sizeB.val); // 文字由 A 到 Z
+    return sizeA.val.localeCompare(sizeB.val);
   }
 
-  // 3. 材質
   const matA = a.material || '';
   const matB = b.material || '';
   const matCompare = matA.localeCompare(matB, "zh-Hant");
   if (matCompare !== 0) return matCompare;
 
-  // 4. 料號 (Part Number) - 最後才比對料號
   const partA = a.partNumber || '';
   const partB = b.partNumber || '';
   return partA.localeCompare(partB);
@@ -296,13 +304,84 @@ function ConfirmModal({ title, content, onConfirm, onCancel, confirmText = "確�
   );
 }
 
+// --- 操作紀錄視窗 (Log Modal) ---
+function AuditLogModal({ onClose }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'),
+      orderBy('timestamp', 'desc'),
+      limit(500)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logData = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+      setLogs(logData);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col animate-in zoom-in-95">
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-indigo-50 rounded-t-2xl">
+           <h3 className="font-bold text-indigo-900 flex items-center gap-2"><History size={20}/> 系統操作紀錄</h3>
+           <button onClick={onClose} className="p-2 hover:bg-indigo-100 rounded-full text-indigo-600 transition-colors"><X size={20}/></button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 bg-slate-50">
+          {loading ? (
+             <div className="flex justify-center p-10"><Loader className="animate-spin text-indigo-400" /></div>
+          ) : (
+            <table className="w-full text-left text-xs bg-white rounded-lg shadow-sm border border-slate-200">
+              <thead className="bg-slate-100 text-slate-500 font-semibold sticky top-0">
+                <tr>
+                   <th className="p-3">時間</th>
+                   <th className="p-3">帳號</th>
+                   <th className="p-3">動作</th>
+                   <th className="p-3">產品</th>
+                   <th className="p-3">內容/備註</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {logs.map(log => (
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="p-3 whitespace-nowrap text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                    <td className="p-3 font-mono text-blue-600">{formatUserName(log.user)}</td>
+                    <td className="p-3">
+                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                         log.action.includes('刪除') ? 'bg-red-100 text-red-700' :
+                         log.action.includes('入庫') ? 'bg-green-100 text-green-700' :
+                         log.action.includes('出庫') ? 'bg-orange-100 text-orange-700' :
+                         'bg-slate-100 text-slate-700'
+                       }`}>{log.action}</span>
+                    </td>
+                    <td className="p-3 font-bold text-slate-700">{log.product}</td>
+                    <td className="p-3 text-slate-500 break-all max-w-[200px]">{log.details}</td>
+                  </tr>
+                ))}
+                {logs.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">尚無紀錄</td></tr>}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- 密碼輸入視窗 ---
 function PasswordModal({ onClose, onSuccess }) {
   const [pwd, setPwd] = useState('');
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (btoa(pwd) === ADMIN_PWD_HASH) {
-      onSuccess();
+    const hash = btoa(pwd);
+    if (hash === ADMIN_PWD_HASH) {
+      onSuccess(false); // isSuperAdmin = false
+      onClose();
+    } else if (hash === SUPER_ADMIN_PWD_HASH) {
+      onSuccess(true); // isSuperAdmin = true
       onClose();
     } else {
       alert('密碼錯誤');
@@ -540,7 +619,7 @@ export default function App() {
     const unsubInv = onSnapshot(inventoryRef, 
       (snapshot) => {
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const sortedItems = items.sort(sortInventoryItems); // 使用自定義排序
+        const sortedItems = items.sort(sortInventoryItems); 
         setInventory(sortedItems);
         setLoading(false);
       },
@@ -572,7 +651,6 @@ export default function App() {
         .map(d => ({id: d.id, ...d.data()}))
         .filter(u => {
           const lastSeen = new Date(u.lastSeen);
-          // 判定 2 分鐘內為線上
           return (now - lastSeen) < 120000 && u.id !== user.uid;
         });
       setOnlineUsers(active);
@@ -610,7 +688,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative">
-      {/* 彈出視窗 */}
       {notification && (
         <NotificationModal 
           type={notification.type} 
@@ -627,7 +704,7 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">聚鴻塑膠庫存管理系統</h1>
           </div>
           <div className="flex items-center gap-3">
-             {/* 顯示其他線上使用者 (圓圈頭像) */}
+             {/* 顯示其他線上使用者 */}
              {onlineUsers.length > 0 && (
                <div className="flex -space-x-2 mr-2">
                  {onlineUsers.map(u => (
@@ -772,8 +849,11 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
         await updateDoc(itemRef, { 
             quantity: increment(finalQty), 
             lastUpdated: new Date().toISOString(),
-            lastEditor: currentUser.email // 記錄操作者 email
+            lastEditor: currentUser.email // 更新欄位
         });
+
+        // 寫入 Log
+        await addAuditLog(mode === 'inbound' ? '入庫' : '出庫', targetItem.name, `數量: ${qty}, 料號: ${targetItem.partNumber}`, currentUser.email);
         
         onSave('success', `已${mode === 'inbound' ? '入庫' : '出庫'}並更新庫存`);
         setQuantity(''); 
@@ -922,9 +1002,11 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
 function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [currentFolder, setCurrentFolder] = useState(null);
   const [globalSearch, setGlobalSearch] = useState('');
-  const [previewImage, setPreviewImage] = useState(null); // 大圖預覽狀態
-  const [isEditMode, setIsEditMode] = useState(false); // 編輯模式開關
-  const [showPwdModal, setShowPwdModal] = useState(false); // 密碼視窗開關
+  const [previewImage, setPreviewImage] = useState(null); 
+  const [isEditMode, setIsEditMode] = useState(false); 
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // 新增：超級管理員狀態
+  const [showPwdModal, setShowPwdModal] = useState(false); 
+  const [showLogModal, setShowLogModal] = useState(false); // 新增：顯示紀錄視窗
   
   // 批量操作模式
   const [isDeleteMode, setIsDeleteMode] = useState(false);
@@ -932,16 +1014,16 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [showConfirmBatchSave, setShowConfirmBatchSave] = useState(false);
-  const [batchEditValues, setBatchEditValues] = useState({}); // 暫存修改值
+  const [batchEditValues, setBatchEditValues] = useState({});
 
   // 編輯/新增相關狀態
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formName, setFormName] = useState('');
-  const [formPartNumber, setFormPartNumber] = useState(''); // 料號
+  const [formPartNumber, setFormPartNumber] = useState(''); 
   const [formSizeVal, setFormSizeVal] = useState('');
   const [formSizeUnit, setFormSizeUnit] = useState('英吋'); 
-  const [formCategory, setFormCategory] = useState('零件'); // 預設改為 零件
+  const [formCategory, setFormCategory] = useState('零件'); 
   const [formMaterial, setFormMaterial] = useState('');
   const [formSpec, setFormSpec] = useState(''); 
   const [formQty, setFormQty] = useState('0');
@@ -955,7 +1037,6 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const folders = useMemo(() => {
     const map = {};
     inventory.forEach(item => {
-      // 優先使用料號首字，若無料號則用品名
       const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
       if (!map[key]) map[key] = 0;
       map[key]++;
@@ -963,11 +1044,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     return Object.keys(map).sort();
   }, [inventory]);
 
-  // 2. 清單內容 & 排序 (使用新的排序邏輯)
+  // 2. 清單內容 & 排序
   const displayItems = useMemo(() => {
     let list = [];
     if (globalSearch.trim()) {
-      // 搜尋料號 或 品名
       list = inventory.filter(item => 
         item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) || 
         item.name?.toLowerCase().includes(globalSearch.toLowerCase())
@@ -980,7 +1060,6 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     } else {
       return [];
     }
-
     return list.sort(sortInventoryItems);
   }, [currentFolder, inventory, globalSearch]);
 
@@ -994,17 +1073,19 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   // --- 密碼與模式切換邏輯 ---
   const toggleEditMode = () => {
     if (isEditMode) {
-      setIsEditMode(false); // 關閉不需要密碼
+      setIsEditMode(false); 
       setIsDeleteMode(false); 
       setIsBatchEditMode(false);
       setBatchEditValues({});
+      setIsSuperAdmin(false); // 關閉時同時登出超級管理員
     } else {
-      setShowPwdModal(true); // 開啟需要驗證
+      setShowPwdModal(true);
     }
   };
 
-  const handlePasswordSuccess = () => {
+  const handlePasswordSuccess = (superAdmin = false) => {
     setIsEditMode(true);
+    setIsSuperAdmin(superAdmin);
   };
 
   // --- 批量刪除邏輯 ---
@@ -1035,12 +1116,15 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const executeBatchDelete = async () => {
     if (selectedIds.size === 0) return;
     const batch = writeBatch(db);
+    let count = 0;
     selectedIds.forEach(id => {
        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id);
        batch.delete(ref);
+       count++;
     });
     try {
       await batch.commit();
+      await addAuditLog('刪除', '多筆資料', `共刪除 ${count} 筆`, currentUser.email);
       onSave('success', `成功刪除 ${selectedIds.size} 筆資料`);
       setSelectedIds(new Set());
       setIsDeleteMode(false);
@@ -1090,13 +1174,14 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
         ...data,
         quantity: parseInt(data.quantity) || 0,
         lastUpdated: new Date().toISOString(),
-        lastEditor: currentUser.email // 記錄操作者
+        lastEditor: currentUser.email
       });
       count++;
     });
 
     try {
       await batch.commit();
+      await addAuditLog('修改', '多筆資料', `批次更新 ${count} 筆`, currentUser.email);
       onSave('success', `成功更新 ${count} 筆資料`);
       setIsBatchEditMode(false);
       setBatchEditValues({});
@@ -1140,8 +1225,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
           try {
             const newItemRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
             batch.set(newItemRef, {
-              partNumber: cols[0], // 料號
-              name: cols[1],       // 品名
+              partNumber: cols[0], 
+              name: cols[1],       
               size: cols[2],
               category: cols[3] || '零件',
               material: cols[4],
@@ -1152,7 +1237,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               safetyStock: parseInt(cols[9]) || 5000,
               photo: cols[10] || '', 
               lastUpdated: new Date().toISOString(),
-              lastEditor: currentUser.email // 記錄操作者
+              lastEditor: currentUser.email
             });
             batchCount++;
             successCount++;
@@ -1167,6 +1252,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       if (batchCount > 0) {
         try {
           await batch.commit();
+          await addAuditLog('匯入', 'CSV 匯入', `新增 ${successCount} 筆資料`, currentUser.email);
           onSave('success', `匯入成功：新增 ${successCount} 筆資料`);
         } catch (err) {
           console.error(err);
@@ -1206,7 +1292,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     let processedCount = 0;
 
     const processFile = (file) => {
-      const fileName = file.name.split('.')[0].toLowerCase(); // 檔名即料號
+      const fileName = file.name.split('.')[0].toLowerCase(); 
       const targetIds = partNumToIdsMap[fileName];
 
       if (targetIds && targetIds.length > 0) {
@@ -1234,7 +1320,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                 updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id), {
                   photo: dataUrl,
                   lastUpdated: new Date().toISOString(),
-                  lastEditor: currentUser.email // 記錄操作者
+                  lastEditor: currentUser.email
                 })
               );
               await Promise.all(updates);
@@ -1254,9 +1340,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       }
     };
 
-    const checkDone = () => {
+    const checkDone = async () => {
       processedCount++;
       if (processedCount === files.length) {
+        await addAuditLog('匯入', '圖片匯入', `配對 ${successCount} 張照片`, currentUser.email);
         onSave('success', `圖片匯入完成：成功配對 ${successCount} 張 (料號)，${failCount} 張無對應料號`);
         e.target.value = null;
       }
@@ -1351,15 +1438,17 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
         photo: formPhoto, 
         remarks: formRemarks, 
         lastUpdated: new Date().toISOString(),
-        lastEditor: currentUser.email // 記錄操作者
+        lastEditor: currentUser.email
       };
 
       if (editingItem) {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', editingItem.id), data);
+        await addAuditLog('修改', data.name, `料號: ${data.partNumber}`, currentUser.email);
         onSave('success', '資料更新成功');
       } else {
         const newId = crypto.randomUUID();
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', newId), data);
+        await addAuditLog('新增', data.name, `料號: ${data.partNumber}`, currentUser.email);
         onSave('success', '資料新增成功');
       }
       setIsAdding(false);
@@ -1374,9 +1463,11 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   };
 
   const handleDelete = async (id) => {
+    const item = inventory.find(i => i.id === id);
     if (!confirm('確定要刪除嗎？')) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id));
+      await addAuditLog('刪除', item ? item.name : '未知', `料號: ${item?.partNumber}`, currentUser.email);
       onSave('success', '已刪除');
     } catch (err) { onSave('error', '刪除失敗'); }
   };
@@ -1418,6 +1509,8 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     <div className="animate-in fade-in h-full flex flex-col">
       <ImagePreviewModal src={previewImage} onClose={() => setPreviewImage(null)} />
       {showPwdModal && <PasswordModal onClose={() => setShowPwdModal(false)} onSuccess={handlePasswordSuccess} />}
+      {showLogModal && <AuditLogModal onClose={() => setShowLogModal(false)} />}
+      
       {showConfirmDelete && (
         <ConfirmModal 
           title="確認刪除？" 
@@ -1459,11 +1552,21 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-all ${isEditMode ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-500'}`}
             >
               {isEditMode ? <Unlock size={14}/> : <Lock size={14}/>}
-              {isEditMode ? '編輯模式' : '檢視模式'}
+              {isEditMode ? (isSuperAdmin ? '超級管理' : '編輯模式') : '檢視模式'}
             </button>
 
             {isEditMode && (
               <>
+                {/* 0. 超級管理員功能：檢視紀錄 */}
+                {isSuperAdmin && (
+                   <button 
+                     onClick={() => setShowLogModal(true)} 
+                     className="bg-purple-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95"
+                   >
+                     <History size={14}/> 檢視紀錄
+                   </button>
+                )}
+
                 {/* 1. 批次修改 / 儲存修改 */}
                 {(currentFolder || globalSearch) && (
                    <button 
