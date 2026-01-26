@@ -64,6 +64,7 @@ const manualConfig = {
   appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
   measurementId: "G-H42133M94Y"
 };
+
 // --- Firebase 初始化邏輯 ---
 let firebaseConfig;
 let isDemoEnv = false;
@@ -89,6 +90,86 @@ const formatUserName = (email) => {
   if (!email) return 'Guest';
   return email.split('@')[0];
 };
+
+// --- 工具函式：解析尺寸數值 (用於排序) ---
+const getSizeValue = (sizeStr) => {
+  if (!sizeStr) return { type: 3, val: 0 }; // 空值排最後
+  const s = sizeStr.toString().toLowerCase().trim();
+
+  // 1. 判斷是否為 mm (mm 先排)
+  if (s.endsWith('mm')) {
+    const num = parseFloat(s.replace('mm', ''));
+    return { type: 0, val: isNaN(num) ? 0 : num };
+  }
+
+  // 2. 判斷是否為英吋 (含有 " 或 inch 或 英吋)
+  if (s.includes('"') || s.includes('inch') || s.includes('英吋')) {
+    let val = 0;
+    // 移除單位字元
+    let clean = s.replace(/["inch英吋]/g, '').trim();
+    
+    // 處理帶有連字號的分數 (例如 1-1/2)
+    if (clean.includes('-')) {
+      const parts = clean.split('-');
+      if (parts.length === 2) {
+        val = parseFloat(parts[0]); // 整數部分
+        const frac = parts[1].split('/');
+        if (frac.length === 2) {
+          val += parseFloat(frac[0]) / parseFloat(frac[1]); // 加上分數部分
+        }
+      }
+    } 
+    // 處理單純分數 (例如 5/8)
+    else if (clean.includes('/')) {
+      const frac = clean.split('/');
+      if (frac.length === 2) {
+        val = parseFloat(frac[0]) / parseFloat(frac[1]);
+      }
+    } 
+    // 處理單純整數/小數 (例如 1, 2.5)
+    else {
+      val = parseFloat(clean);
+    }
+    return { type: 1, val: isNaN(val) ? 0 : val };
+  }
+
+  // 3. 其他無法識別的格式 (排在英吋之後)
+  return { type: 2, val: s };
+};
+
+// --- 工具函式：全域排序邏輯 ---
+const sortInventoryItems = (a, b) => {
+  // 第一順位：料號 (Part Number)
+  const partA = a.partNumber || '';
+  const partB = b.partNumber || '';
+  if (partA !== partB) return partA.localeCompare(partB);
+  
+  // 第二順位：品名 (Name)
+  if (a.name !== b.name) return a.name.localeCompare(b.name);
+  
+  // 第三順位：尺寸 (Size) - 使用自定義邏輯
+  const sizeA = getSizeValue(a.size);
+  const sizeB = getSizeValue(b.size);
+
+  // 先比較類型 (mm(0) < inch(1) < other(2) < empty(3))
+  if (sizeA.type !== sizeB.type) {
+    return sizeA.type - sizeB.type;
+  }
+  
+  // 同類型比較數值
+  if (sizeA.type === 0 || sizeA.type === 1) {
+    return sizeA.val - sizeB.val; // 數字由小到大
+  }
+  
+  // 其他類型比較字串
+  if (sizeA.type === 2) {
+    return sizeA.val.localeCompare(sizeB.val);
+  }
+
+  // 第四順位：材質 (Material)
+  return (a.material || '').localeCompare(b.material || '');
+};
+
 
 // --- 工具函式：匯出 CSV ---
 const exportToCSV = (data, fileName = 'inventory_export') => {
@@ -128,7 +209,7 @@ const exportToCSV = (data, fileName = 'inventory_export') => {
 // --- 工具函式：產生匯入範本 ---
 const downloadImportTemplate = () => {
   const headers = ["料號", "品名", "尺寸", "分類(成品/零件)", "材質", "材質規格", "顏色(黑色/有色請填色號)", "備註(可空白)", "庫存數量", "安全庫存(預設5000)", "照片(填入網址)"];
-  const exampleRow = ["A-001", "範例螺絲A", "5/8", "零件", "不鏽鋼", "M5x10", "黑色", "無備註", "100", "5000", ""];
+  const exampleRow = ["A-001", "範例螺絲A", "5/8\"", "零件", "不鏽鋼", "M5x10", "黑色", "無備註", "100", "5000", ""];
   const csvString = "\uFEFF" + headers.join(",") + "\n" + exampleRow.join(",");
   
   const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
@@ -437,16 +518,12 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // --- A. 監聽庫存資料 ---
+    // --- A. 監聽庫存資料 (使用新的排序邏輯) ---
     const inventoryRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
     const unsubInv = onSnapshot(inventoryRef, 
       (snapshot) => {
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const sortedItems = items.sort((a, b) => {
-          if (a.name !== b.name) return a.name.localeCompare(b.name);
-          if ((a.size || '') !== (b.size || '')) return (a.size || '').localeCompare(b.size || '');
-          return (a.material || '').localeCompare(b.material || '');
-        });
+        const sortedItems = items.sort(sortInventoryItems); // 使用自定義排序
         setInventory(sortedItems);
         setLoading(false);
       },
@@ -594,16 +671,16 @@ function NavButton({ active, onClick, icon, label }) {
 
 // --- 入庫與出庫共用表單 ---
 function TransactionForm({ mode, inventory, onSave, currentUser }) {
-  const [formName, setFormName] = useState('');
+  const [formPartNumber, setFormPartNumber] = useState(''); 
   const [selectedAttr, setSelectedAttr] = useState({ size: '', category: '', material: '', spec: '', color: '' });
   const [quantity, setQuantity] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nameError, setNameError] = useState('');
   
   const matchingVariants = useMemo(() => {
-    if (!formName) return [];
-    return inventory.filter(i => i.name?.toLowerCase() === formName.trim().toLowerCase());
-  }, [formName, inventory]);
+    if (!formPartNumber) return [];
+    return inventory.filter(i => i.partNumber?.toLowerCase() === formPartNumber.trim().toLowerCase());
+  }, [formPartNumber, inventory]);
 
   const options = useMemo(() => {
     return {
@@ -625,14 +702,14 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
     );
   }, [matchingVariants, selectedAttr]);
 
-  const handleNameChange = (val) => {
-    setFormName(val);
+  const handlePartNumberChange = (val) => {
+    setFormPartNumber(val);
     setNameError('');
     setSelectedAttr({ size: '', category: '', material: '', spec: '', color: '' });
     
     if (!val.trim()) return;
 
-    const exists = inventory.some(i => i.name?.toLowerCase() === val.trim().toLowerCase());
+    const exists = inventory.some(i => i.partNumber?.toLowerCase() === val.trim().toLowerCase());
     if (!exists) {
       setNameError('錯誤：資料庫無此料號');
     }
@@ -653,7 +730,7 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const qty = parseInt(quantity);
-    if (!formName || isNaN(qty) || qty <= 0) {
+    if (!formPartNumber || isNaN(qty) || qty <= 0) {
       onSave('error', '請填寫正確資訊');
       return;
     }
@@ -683,7 +760,7 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
         
         onSave('success', `已${mode === 'inbound' ? '入庫' : '出庫'}並更新庫存`);
         setQuantity(''); 
-        setFormName('');
+        setFormPartNumber('');
         setSelectedAttr({ size: '', category: '', material: '', spec: '', color: '' });
       } else {
         onSave('error', '請完整選擇規格');
@@ -708,15 +785,15 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
         {mode === 'inbound' ? '物料入庫' : '物料出庫'}
       </h2>
 
-      {/* 產品名稱 */}
+      {/* 料號輸入 */}
       <div>
-        <label className="block text-xs font-bold text-slate-400 mb-1">產品名稱</label>
+        <label className="block text-xs font-bold text-slate-400 mb-1">料號</label>
         <div className="relative">
           <input 
             type="text" 
-            value={formName} 
-            onChange={e => handleNameChange(e.target.value)} 
-            placeholder="輸入料號 (如: S1)" 
+            value={formPartNumber} 
+            onChange={e => handlePartNumberChange(e.target.value)} 
+            placeholder="輸入料號 (如: A001)" 
             className={`w-full p-3 bg-slate-50 border rounded-xl focus:ring-2 focus:outline-none transition-colors ${nameError ? 'border-red-300 focus:ring-red-200 bg-red-50' : 'border-slate-200 focus:ring-indigo-500'}`} 
           />
           {matchingVariants.length > 0 && !nameError && (
@@ -729,6 +806,13 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
       {matchingVariants.length > 0 && !nameError && (
         <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
            
+           {/* 顯示對應的品名 (唯讀) */}
+           <div className="text-center mb-2">
+             <span className="text-xs text-slate-400">對應品名</span>
+             <p className="text-lg font-bold text-slate-700">{matchingVariants[0].name}</p>
+           </div>
+
+           {/* 顯示產品照片 */}
            {targetItem && targetItem.photo && (
              <div className="flex justify-center mb-4 bg-gray-50 p-2 rounded-lg border border-slate-200">
                <div className="w-32 h-32 relative bg-white rounded-md border border-slate-200 overflow-hidden">
@@ -779,7 +863,7 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">規格</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">材質規格</label>
                 <select 
                   value={selectedAttr.spec} 
                   onChange={e => handleAttrChange('spec', e.target.value)} 
@@ -837,6 +921,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formName, setFormName] = useState('');
+  const [formPartNumber, setFormPartNumber] = useState(''); // 料號
   const [formSizeVal, setFormSizeVal] = useState('');
   const [formSizeUnit, setFormSizeUnit] = useState('英吋'); 
   const [formCategory, setFormCategory] = useState('零件'); // 預設改為 零件
@@ -861,7 +946,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     return Object.keys(map).sort();
   }, [inventory]);
 
-  // 2. 清單內容 & 排序
+  // 2. 清單內容 & 排序 (使用新的排序邏輯)
   const displayItems = useMemo(() => {
     let list = [];
     if (globalSearch.trim()) {
@@ -879,12 +964,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       return [];
     }
 
-    return list.sort((a, b) => {
-      if (a.partNumber !== b.partNumber) return (a.partNumber || '').localeCompare(b.partNumber || '');
-      if (a.name !== b.name) return a.name.localeCompare(b.name);
-      if ((a.size || '') !== (b.size || '')) return (a.size || '').localeCompare(b.size || '');
-      return (a.material || '').localeCompare(b.material || '');
-    });
+    return list.sort(sortInventoryItems);
   }, [currentFolder, inventory, globalSearch]);
 
   const handleGlobalSearchChange = (e) => {
@@ -1684,7 +1764,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">尺寸 (選填)</label>
                 <div className="flex gap-2">
-                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白 (如 5/8)" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                   <select value={formSizeUnit} onChange={e => setFormSizeUnit(e.target.value)} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
                     <option value="英吋">英吋</option>
                     <option value="mm">mm</option>
@@ -1739,7 +1819,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                    )}
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">備註 (選填)</label>
                 <input type="text" value={formRemarks} onChange={e => setFormRemarks(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
