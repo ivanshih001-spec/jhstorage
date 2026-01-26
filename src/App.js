@@ -91,49 +91,65 @@ const formatUserName = (email) => {
   return email.split('@')[0];
 };
 
-// --- 工具函式：解析尺寸數值 (用於排序) ---
+// --- 工具函式：解析尺寸數值 (強化版排序邏輯) ---
 const getSizeValue = (sizeStr) => {
   if (!sizeStr) return { type: 3, val: 0 }; // 空值排最後
   const s = sizeStr.toString().toLowerCase().trim();
 
-  // 1. 判斷是否為 mm (mm 先排)
+  // 1. 判斷是否為 mm (mm 先排，Type 0)
   if (s.endsWith('mm')) {
     const num = parseFloat(s.replace('mm', ''));
     return { type: 0, val: isNaN(num) ? 0 : num };
   }
 
-  // 2. 判斷是否為英吋 (含有 " 或 inch 或 英吋)
-  if (s.includes('"') || s.includes('inch') || s.includes('英吋')) {
-    let val = 0;
-    // 移除單位字元
-    let clean = s.replace(/["inch英吋]/g, '').trim();
-    
-    // 處理帶有連字號的分數 (例如 1-1/2)
-    if (clean.includes('-')) {
-      const parts = clean.split('-');
-      if (parts.length === 2) {
-        val = parseFloat(parts[0]); // 整數部分
-        const frac = parts[1].split('/');
-        if (frac.length === 2) {
-          val += parseFloat(frac[0]) / parseFloat(frac[1]); // 加上分數部分
-        }
+  // 2. 判斷是否為英吋/分數/純數字 (Type 1)
+  // 移除單位字元，保留數字、小數點、斜線、連字號
+  let clean = s.replace(/["inch英吋]/g, '').trim();
+  let val = 0;
+  let isNumeric = false;
+
+  // 處理 "1-1/2" 這種格式 (整數-分數)
+  if (clean.includes('-') && clean.includes('/')) {
+     const parts = clean.split('-');
+     if (parts.length === 2) {
+       const intVal = parseFloat(parts[0]);
+       const fracParts = parts[1].split('/');
+       if (!isNaN(intVal) && fracParts.length === 2) {
+         const numerator = parseFloat(fracParts[0]);
+         const denominator = parseFloat(fracParts[1]);
+         if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+            val = intVal + (numerator / denominator);
+            isNumeric = true;
+         }
+       }
+     }
+  } 
+  // 處理 "5/8", "3/4" 這種格式 (單純分數)
+  else if (clean.includes('/')) {
+    const fracParts = clean.split('/');
+    if (fracParts.length === 2) {
+      const numerator = parseFloat(fracParts[0]);
+      const denominator = parseFloat(fracParts[1]);
+      if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+        val = numerator / denominator;
+        isNumeric = true;
       }
-    } 
-    // 處理單純分數 (例如 5/8)
-    else if (clean.includes('/')) {
-      const frac = clean.split('/');
-      if (frac.length === 2) {
-        val = parseFloat(frac[0]) / parseFloat(frac[1]);
-      }
-    } 
-    // 處理單純整數/小數 (例如 1, 2.5)
-    else {
-      val = parseFloat(clean);
     }
-    return { type: 1, val: isNaN(val) ? 0 : val };
+  }
+  // 處理 "1", "2.5", "10" 這種格式 (純數字/小數)
+  else {
+    const num = parseFloat(clean);
+    if (!isNaN(num)) {
+      val = num;
+      isNumeric = true;
+    }
   }
 
-  // 3. 其他無法識別的格式 (排在英吋之後)
+  if (isNumeric) {
+    return { type: 1, val: val };
+  }
+
+  // 3. 其他無法識別的格式 (排在英吋之後，Type 2)
   return { type: 2, val: s };
 };
 
@@ -147,18 +163,18 @@ const sortInventoryItems = (a, b) => {
   // 第二順位：品名 (Name)
   if (a.name !== b.name) return a.name.localeCompare(b.name);
   
-  // 第三順位：尺寸 (Size) - 使用自定義邏輯
+  // 第三順位：尺寸 (Size) - 使用新的數值排序
   const sizeA = getSizeValue(a.size);
   const sizeB = getSizeValue(b.size);
 
-  // 先比較類型 (mm(0) < inch(1) < other(2) < empty(3))
+  // 先比較類型 (mm(0) < inch/number(1) < other(2) < empty(3))
   if (sizeA.type !== sizeB.type) {
     return sizeA.type - sizeB.type;
   }
   
-  // 同類型比較數值
+  // 同類型比較數值 (數值由小到大，文字由A到Z)
   if (sizeA.type === 0 || sizeA.type === 1) {
-    return sizeA.val - sizeB.val; // 數字由小到大
+    return sizeA.val - sizeB.val;
   }
   
   // 其他類型比較字串
@@ -1819,7 +1835,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                    )}
                 </div>
               </div>
-
+              
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">備註 (選填)</label>
                 <input type="text" value={formRemarks} onChange={e => setFormRemarks(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
