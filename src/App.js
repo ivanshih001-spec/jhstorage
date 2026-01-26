@@ -56,12 +56,13 @@ import {
 // 請將下方的設定替換為您自己的 Firebase Config
 // ==========================================
 const manualConfig = {
-  apiKey: "請填入您的_apiKey",
-  authDomain: "請填入您的_authDomain",
-  projectId: "請填入您的_projectId",
-  storageBucket: "請填入您的_storageBucket",
-  messagingSenderId: "請填入您的_messagingSenderId",
-  appId: "請填入您的_appId"
+  apiKey: "AIzaSyBH0CggQcMwwX-Dv9HFT5Vr5LWYrUq1ga8",
+  authDomain: "gemini-storage-f3e00.firebaseapp.com",
+  projectId: "gemini-storage-f3e00",
+  storageBucket: "gemini-storage-f3e00.firebasestorage.app",
+  messagingSenderId: "57229786361",
+  appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
+  measurementId: "G-H42133M94Y"
 };
 
 // --- Firebase 初始化邏輯 ---
