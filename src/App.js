@@ -64,7 +64,6 @@ const manualConfig = {
   appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
   measurementId: "G-H42133M94Y"
 };
-
 // --- Firebase 初始化邏輯 ---
 let firebaseConfig;
 let isDemoEnv = false;
@@ -565,7 +564,7 @@ export default function App() {
       </main>
 
       {/* Footer Version */}
-      <div className="fixed bottom-20 right-4 z-10 pointer-events-none text-[10px] text-slate-400 opacity-60 font-mono">
+      <div className="fixed bottom-28 right-4 z-10 pointer-events-none text-[10px] text-slate-400 opacity-60 font-mono">
         v260126
       </div>
 
@@ -780,7 +779,7 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">材質規格</label>
+                <label className="block text-xs font-bold text-slate-500 mb-1">規格</label>
                 <select 
                   value={selectedAttr.spec} 
                   onChange={e => handleAttrChange('spec', e.target.value)} 
@@ -1685,7 +1684,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">尺寸 (選填)</label>
                 <div className="flex gap-2">
-                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白 (如 5/8)" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                   <select value={formSizeUnit} onChange={e => setFormSizeUnit(e.target.value)} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
                     <option value="英吋">英吋</option>
                     <option value="mm">mm</option>
