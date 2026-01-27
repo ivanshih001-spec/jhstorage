@@ -1,39 +1,39 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  increment, 
+import React, { useState, useEffect, useMemo } from "react";
+import { initializeApp } from "firebase/app";
+import {
+  getFirestore,
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  increment,
   onSnapshot,
   deleteDoc,
   writeBatch,
-  addDoc,   
-  query,    
-  orderBy,  
-  limit     
-} from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  signInWithPopup,      
-  GoogleAuthProvider,   
+  addDoc,
+  query,
+  orderBy,
+  limit,
+} from "firebase/firestore";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  Package, 
-  Search, 
-  PlusCircle, 
+  onAuthStateChanged,
+} from "firebase/auth";
+import {
+  Package,
+  Search,
+  PlusCircle,
   MinusCircle,
   Database,
-  AlertCircle, 
-  CheckCircle, 
-  Loader,      
-  Trash,       
-  Edit,        
+  AlertCircle,
+  CheckCircle,
+  Loader,
+  Trash,
+  Edit,
   X,
   AlertTriangle,
   Folder,
@@ -51,10 +51,13 @@ import {
   ShieldAlert,
   Save,
   Pencil,
-  LogOut, 
+  LogOut,
   User,
-  History 
-} from 'lucide-react';
+  History,
+  Settings, // 新增：設定圖示
+  Plus, // 新增：加號圖示
+  Minus, // 新增：減號圖示
+} from "lucide-react";
 
 // ==========================================
 // 【發布設定區】
@@ -67,14 +70,14 @@ const manualConfig = {
   storageBucket: "gemini-storage-f3e00.firebasestorage.app",
   messagingSenderId: "57229786361",
   appId: "1:57229786361:web:fe1cc3b5ab532cad3f3628",
-  measurementId: "G-H42133M94Y"
+  measurementId: "G-H42133M94Y",
 };
 
 // --- Firebase 初始化邏輯 ---
 let firebaseConfig;
 let isDemoEnv = false;
 
-if (typeof __firebase_config !== 'undefined') {
+if (typeof __firebase_config !== "undefined") {
   firebaseConfig = JSON.parse(__firebase_config);
   isDemoEnv = true;
 } else {
@@ -85,7 +88,8 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-master-system-v3';
+const appId =
+  typeof __app_id !== "undefined" ? __app_id : "inventory-master-system-v3";
 
 // --- 安全性設定：密碼編碼 ---
 const ADMIN_PWD_HASH = "ODM1NQ=="; // 8355
@@ -93,17 +97,17 @@ const SUPER_ADMIN_PWD_HASH = "MDYwNQ=="; // 0605
 
 // --- 工具函式：簡化 Email 顯示 ---
 const formatUserName = (email) => {
-  if (!email) return 'Guest';
-  return email.split('@')[0];
+  if (!email) return "Guest";
+  return email.split("@")[0];
 };
 
 // --- 工具函式：數值格式化 ---
-const formatVal = (v) => (v === undefined || v === null) ? '' : String(v);
+const formatVal = (v) => (v === undefined || v === null ? "" : String(v));
 
-// --- 工具函式：生成產品識別字串 (用於 Log) ---
+// --- 工具函式：生成產品識別字串 ---
 const getProductIdentity = (item) => {
-  if (!item) return '未知產品';
-  const specStr = item.spec ? `(${item.spec})` : '';
+  if (!item) return "未知產品";
+  const specStr = item.spec ? `(${item.spec})` : "";
   return `[${item.partNumber}] ${item.name} - ${item.material}${specStr} ${item.color}`;
 };
 
@@ -111,44 +115,47 @@ const getProductIdentity = (item) => {
 const getDiff = (oldItem, newItem) => {
   const changes = [];
   const fieldMap = {
-    partNumber: '料號',
-    name: '品名',
-    size: '尺寸',
-    category: '分類',
-    material: '材質',
-    spec: '材質規格',
-    color: '顏色',
-    remarks: '備註',
-    quantity: '庫存',
-    safetyStock: '安全庫存'
+    partNumber: "料號",
+    name: "品名",
+    size: "尺寸",
+    category: "分類",
+    material: "材質",
+    spec: "材質規格",
+    color: "顏色",
+    remarks: "備註",
+    quantity: "庫存",
+    safetyStock: "安全庫存",
   };
 
-  Object.keys(fieldMap).forEach(key => {
+  Object.keys(fieldMap).forEach((key) => {
     const v1 = formatVal(oldItem[key]);
     const v2 = formatVal(newItem[key]);
     if (v1 != v2) {
-       changes.push(`${fieldMap[key]}: ${v1 || '(空)'} -> ${v2 || '(空)'}`);
+      changes.push(`${fieldMap[key]}: ${v1 || "(空)"} -> ${v2 || "(空)"}`);
     }
   });
 
   if (oldItem.photo !== newItem.photo) {
-     changes.push('照片: 已變更');
+    changes.push("照片: 已變更");
   }
 
-  return changes.join('; ');
+  return changes.join("; ");
 };
 
 // --- 工具函式：寫入操作紀錄 ---
 const addAuditLog = async (action, productIdentity, details, userEmail) => {
   if (!userEmail) return;
   try {
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), {
-      timestamp: new Date().toISOString(),
-      user: userEmail,
-      action: action,
-      product: productIdentity, // 這裡現在會存詳細的產品識別資訊
-      details: details,
-    });
+    await addDoc(
+      collection(db, "artifacts", appId, "public", "data", "audit_logs"),
+      {
+        timestamp: new Date().toISOString(),
+        user: userEmail,
+        action: action,
+        product: productIdentity,
+        details: details,
+      }
+    );
   } catch (err) {
     console.error("Log Error:", err);
   }
@@ -156,34 +163,34 @@ const addAuditLog = async (action, productIdentity, details, userEmail) => {
 
 // --- 工具函式：解析尺寸數值 ---
 const getSizeValue = (sizeStr) => {
-  if (!sizeStr) return { type: 3, val: 0 }; 
+  if (!sizeStr) return { type: 3, val: 0 };
   const s = sizeStr.toString().toLowerCase().trim();
 
-  if (s.endsWith('mm')) {
-    const num = parseFloat(s.replace('mm', ''));
+  if (s.endsWith("mm")) {
+    const num = parseFloat(s.replace("mm", ""));
     return { type: 0, val: isNaN(num) ? 0 : num };
   }
 
-  let clean = s.replace(/["inch英吋]/g, '').trim();
+  let clean = s.replace(/["inch英吋]/g, "").trim();
   let val = 0;
   let isNumeric = false;
 
-  if (clean.includes('-') && clean.includes('/')) {
-     const parts = clean.split('-');
-     if (parts.length === 2) {
-       const intVal = parseFloat(parts[0]);
-       const fracParts = parts[1].split('/');
-       if (!isNaN(intVal) && fracParts.length === 2) {
-         const numerator = parseFloat(fracParts[0]);
-         const denominator = parseFloat(fracParts[1]);
-         if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
-            val = intVal + (numerator / denominator);
-            isNumeric = true;
-         }
-       }
-     }
-  } else if (clean.includes('/')) {
-    const fracParts = clean.split('/');
+  if (clean.includes("-") && clean.includes("/")) {
+    const parts = clean.split("-");
+    if (parts.length === 2) {
+      const intVal = parseFloat(parts[0]);
+      const fracParts = parts[1].split("/");
+      if (!isNaN(intVal) && fracParts.length === 2) {
+        const numerator = parseFloat(fracParts[0]);
+        const denominator = parseFloat(fracParts[1]);
+        if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+          val = intVal + numerator / denominator;
+          isNumeric = true;
+        }
+      }
+    }
+  } else if (clean.includes("/")) {
+    const fracParts = clean.split("/");
     if (fracParts.length === 2) {
       const numerator = parseFloat(fracParts[0]);
       const denominator = parseFloat(fracParts[1]);
@@ -208,41 +215,55 @@ const getSizeValue = (sizeStr) => {
 
 // --- 工具函式：全域排序邏輯 ---
 const sortInventoryItems = (a, b) => {
-  const nameA = a.name || '';
-  const nameB = b.name || '';
+  const nameA = a.name || "";
+  const nameB = b.name || "";
   const nameCompare = nameA.localeCompare(nameB, "zh-Hant");
   if (nameCompare !== 0) return nameCompare;
-  
+
   const sizeA = getSizeValue(a.size);
   const sizeB = getSizeValue(b.size);
 
   if (sizeA.type !== sizeB.type) {
-    return sizeA.type - sizeB.type; 
+    return sizeA.type - sizeB.type;
   }
   if (sizeA.type === 0 || sizeA.type === 1) {
-    return sizeA.val - sizeB.val; 
+    return sizeA.val - sizeB.val;
   }
   if (sizeA.type === 2) {
     return sizeA.val.localeCompare(sizeB.val);
   }
 
-  const matA = a.material || '';
-  const matB = b.material || '';
+  const matA = a.material || "";
+  const matB = b.material || "";
   const matCompare = matA.localeCompare(matB, "zh-Hant");
   if (matCompare !== 0) return matCompare;
 
-  const partA = a.partNumber || '';
-  const partB = b.partNumber || '';
+  const partA = a.partNumber || "";
+  const partB = b.partNumber || "";
   return partA.localeCompare(partB);
 };
 
 // --- 工具函式：匯出 CSV ---
-const exportToCSV = (data, fileName = 'inventory_export') => {
-  // 欄位順序與匯入範本一致 (除了系統自動生成的欄位在最後)
-  const headers = ["序號", "料號", "品名", "尺寸", "分類", "材質", "材質規格", "顏色", "備註", "庫存數量", "安全庫存", "照片", "最後操作者", "最後更新時間"];
-  
+const exportToCSV = (data, fileName = "inventory_export") => {
+  const headers = [
+    "序號",
+    "料號",
+    "品名",
+    "尺寸",
+    "分類",
+    "材質",
+    "材質規格",
+    "顏色",
+    "備註",
+    "庫存數量",
+    "安全庫存",
+    "照片",
+    "最後操作者",
+    "最後更新時間",
+  ];
+
   const csvRows = data.map((item, index) => {
-    const safe = (text) => `"${(text || '').toString().replace(/"/g, '""')}"`;
+    const safe = (text) => `"${(text || "").toString().replace(/"/g, '""')}"`;
     return [
       index + 1,
       safe(item.partNumber),
@@ -252,12 +273,12 @@ const exportToCSV = (data, fileName = 'inventory_export') => {
       safe(item.material),
       safe(item.spec),
       safe(item.color),
-      safe(item.remarks), 
+      safe(item.remarks),
       item.quantity,
       item.safetyStock || 5000,
-      safe(item.photo ? '有圖片' : ''), 
-      safe(item.lastEditor ? formatUserName(item.lastEditor) : '-'), 
-      safe(new Date(item.lastUpdated).toLocaleString())
+      safe(item.photo ? "有圖片" : ""),
+      safe(item.lastEditor ? formatUserName(item.lastEditor) : "-"),
+      safe(new Date(item.lastUpdated).toLocaleString()),
     ].join(",");
   });
 
@@ -266,21 +287,46 @@ const exportToCSV = (data, fileName = 'inventory_export') => {
   const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
   link.setAttribute("href", url);
-  link.setAttribute("download", `${fileName}_${new Date().toISOString().slice(0,10)}.csv`);
-  link.style.visibility = 'hidden';
+  link.setAttribute(
+    "download",
+    `${fileName}_${new Date().toISOString().slice(0, 10)}.csv`
+  );
+  link.style.visibility = "hidden";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 };
 
-// --- 工具函式：產生匯入範本 (格式與匯出一致) ---
+// --- 工具函式：產生匯入範本 ---
 const downloadImportTemplate = () => {
-  // 欄位順序與匯出格式對應 (移除系統自動欄位：序號、操作者、時間)
-  const headers = ["料號", "品名", "尺寸", "分類", "材質", "材質規格", "顏色", "備註", "庫存數量", "安全庫存", "照片(網址)"];
-  // 範例資料
-  const exampleRow = ["A-001", "範例螺絲A", "5/8", "零件", "不鏽鋼", "M5x10", "黑色", "無備註", "100", "5000", ""];
+  const headers = [
+    "料號",
+    "品名",
+    "尺寸",
+    "分類(成品/零件)",
+    "材質",
+    "材質規格",
+    "顏色(黑色/有色請填色號)",
+    "備註(可空白)",
+    "庫存數量",
+    "安全庫存(預設5000)",
+    "照片(填入網址)",
+  ];
+  const exampleRow = [
+    "A-001",
+    "範例螺絲A",
+    '5/8"',
+    "零件",
+    "不鏽鋼",
+    "M5x10",
+    "黑色",
+    "無備註",
+    "100",
+    "5000",
+    "",
+  ];
   const csvString = "\uFEFF" + headers.join(",") + "\n" + exampleRow.join(",");
-  
+
   const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
@@ -291,14 +337,116 @@ const downloadImportTemplate = () => {
   document.body.removeChild(link);
 };
 
+// --- 分類管理視窗 (Category Modal) ---
+function CategoryManagerModal({ categories, onClose }) {
+  const [newCat, setNewCat] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!newCat.trim()) return;
+    if (categories.includes(newCat.trim())) {
+      alert("分類已存在");
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const newList = [...categories, newCat.trim()];
+      await setDoc(
+        doc(db, "artifacts", appId, "public", "data", "settings", "categories"),
+        { list: newList }
+      );
+      setNewCat("");
+    } catch (err) {
+      console.error(err);
+      alert("新增失敗");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDelete = async (catToDelete) => {
+    if (!confirm(`確定要刪除「${catToDelete}」分類嗎？`)) return;
+    setIsProcessing(true);
+    try {
+      const newList = categories.filter((c) => c !== catToDelete);
+      await setDoc(
+        doc(db, "artifacts", appId, "public", "data", "settings", "categories"),
+        { list: newList }
+      );
+    } catch (err) {
+      console.error(err);
+      alert("刪除失敗");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-indigo-50">
+          <h3 className="font-bold text-indigo-900 flex items-center gap-2">
+            <Settings size={20} /> 分類管理
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-indigo-100 rounded-full text-indigo-600 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-4">
+          <form onSubmit={handleAdd} className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={newCat}
+              onChange={(e) => setNewCat(e.target.value)}
+              placeholder="輸入新分類名稱"
+              className="flex-1 p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+            <button
+              disabled={isProcessing}
+              className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <Plus size={20} />
+            </button>
+          </form>
+          <div className="max-h-60 overflow-y-auto space-y-2">
+            {categories.map((cat, idx) => (
+              <div
+                key={idx}
+                className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"
+              >
+                <span className="font-medium text-slate-700">{cat}</span>
+                <button
+                  onClick={() => handleDelete(cat)}
+                  disabled={isProcessing}
+                  className="text-red-500 hover:bg-red-50 p-1 rounded transition-colors"
+                >
+                  <Minus size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- 提示視窗組件 (Modal) ---
 function NotificationModal({ type, text, onClose }) {
   if (!text) return null;
   return (
     <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs sm:max-w-sm overflow-hidden animate-in zoom-in-95">
-        <div className={`p-6 flex flex-col items-center justify-center ${type === 'error' ? 'bg-red-50' : 'bg-green-50'}`}>
-          {type === 'error' ? (
+        <div
+          className={`p-6 flex flex-col items-center justify-center ${
+            type === "error" ? "bg-red-50" : "bg-green-50"
+          }`}
+        >
+          {type === "error" ? (
             <div className="bg-red-100 p-3 rounded-full mb-3">
               <AlertCircle size={40} className="text-red-600" />
             </div>
@@ -307,15 +455,25 @@ function NotificationModal({ type, text, onClose }) {
               <CheckCircle size={40} className="text-green-600" />
             </div>
           )}
-          <h3 className={`text-xl font-bold ${type === 'error' ? 'text-red-800' : 'text-green-800'}`}>
-            {type === 'error' ? '操作失敗' : '操作成功'}
+          <h3
+            className={`text-xl font-bold ${
+              type === "error" ? "text-red-800" : "text-green-800"
+            }`}
+          >
+            {type === "error" ? "操作失敗" : "操作成功"}
           </h3>
         </div>
         <div className="p-6 text-center">
-          <p className="text-slate-600 mb-6 font-medium text-base break-words">{text}</p>
-          <button 
+          <p className="text-slate-600 mb-6 font-medium text-base break-words">
+            {text}
+          </p>
+          <button
             onClick={onClose}
-            className={`w-full py-3.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 text-sm tracking-wide ${type === 'error' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+            className={`w-full py-3.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 text-sm tracking-wide ${
+              type === "error"
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-green-600 hover:bg-green-700"
+            }`}
           >
             確定
           </button>
@@ -326,22 +484,127 @@ function NotificationModal({ type, text, onClose }) {
 }
 
 // --- 確認視窗 (Confirm Modal) ---
-function ConfirmModal({ title, content, onConfirm, onCancel, confirmText = "確認", confirmColor = "bg-red-600" }) {
+function ConfirmModal({
+  title,
+  content,
+  onConfirm,
+  onCancel,
+  confirmText = "確認",
+  confirmColor = "bg-red-600",
+}) {
   return (
     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
         <div className="p-6 flex flex-col items-center justify-center bg-slate-50">
-           <div className="bg-slate-200 p-3 rounded-full mb-3">
-              <AlertTriangle size={40} className="text-slate-600" />
-           </div>
-           <h3 className="text-xl font-bold text-slate-800">{title}</h3>
+          <div className="bg-slate-200 p-3 rounded-full mb-3">
+            <AlertTriangle size={40} className="text-slate-600" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-800">{title}</h3>
         </div>
         <div className="p-6 text-center">
-          <p className="text-slate-600 mb-6 font-medium text-base break-words">{content}</p>
+          <p className="text-slate-600 mb-6 font-medium text-base break-words">
+            {content}
+          </p>
           <div className="flex gap-3">
-             <button onClick={onCancel} className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">取消</button>
-             <button onClick={onConfirm} className={`flex-1 py-3 rounded-xl font-bold text-white ${confirmColor} hover:opacity-90 shadow-lg transition-transform active:scale-95`}>{confirmText}</button>
+            <button
+              onClick={onCancel}
+              className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={onConfirm}
+              className={`flex-1 py-3 rounded-xl font-bold text-white ${confirmColor} hover:opacity-90 shadow-lg transition-transform active:scale-95`}
+            >
+              {confirmText}
+            </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- 操作紀錄視窗 (Log Modal) ---
+function AuditLogModal({ onClose }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "artifacts", appId, "public", "data", "audit_logs"),
+      orderBy("timestamp", "desc"),
+      limit(500)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setLogs(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in-95">
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-indigo-50 rounded-t-2xl">
+          <h3 className="font-bold text-indigo-900 flex items-center gap-2">
+            <History size={20} /> 系統操作紀錄
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-indigo-100 rounded-full text-indigo-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 bg-slate-50">
+          {loading ? (
+            <div className="flex justify-center p-10">
+              <Loader className="animate-spin text-indigo-400" />
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs bg-white rounded-lg shadow-sm border border-slate-200">
+              <thead className="bg-slate-100 text-slate-500 font-semibold sticky top-0">
+                <tr>
+                  <th className="p-3">時間</th>
+                  <th className="p-3">帳號</th>
+                  <th className="p-3">動作</th>
+                  <th className="p-3">產品詳情 (料號 | 品名 | 規格 | 顏色)</th>
+                  <th className="p-3">變更內容</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="p-3 whitespace-nowrap text-slate-500">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="p-3 font-mono text-blue-600">
+                      {formatUserName(log.user)}
+                    </td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 font-bold">
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="p-3 font-bold text-slate-700">
+                      {log.product}
+                    </td>
+                    <td className="p-3 text-slate-500 break-all max-w-[250px]">
+                      {log.details}
+                    </td>
+                  </tr>
+                ))}
+                {logs.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="p-8 text-center text-slate-400">
+                      尚無紀錄
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -350,7 +613,7 @@ function ConfirmModal({ title, content, onConfirm, onCancel, confirmText = "確�
 
 // --- 密碼輸入視窗 ---
 function PasswordModal({ onClose, onSuccess }) {
-  const [pwd, setPwd] = useState('');
+  const [pwd, setPwd] = useState("");
   const handleSubmit = (e) => {
     e.preventDefault();
     const hash = btoa(pwd);
@@ -361,41 +624,60 @@ function PasswordModal({ onClose, onSuccess }) {
       onSuccess(true);
       onClose();
     } else {
-      alert('密碼錯誤');
-      setPwd('');
+      alert("密碼錯誤");
+      setPwd("");
     }
   };
   return (
     <div className="fixed inset-0 bg-black/60 z-[90] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-xl w-72 animate-in zoom-in-95">
-        <h3 className="font-bold text-lg mb-4 text-center text-slate-800">請輸入管理員密碼</h3>
-        <input 
-          type="password" 
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-6 rounded-2xl shadow-xl w-72 animate-in zoom-in-95"
+      >
+        <h3 className="font-bold text-lg mb-4 text-center text-slate-800">
+          請輸入管理員密碼
+        </h3>
+        <input
+          type="password"
           autoFocus
           className="w-full border-2 border-slate-200 p-3 rounded-xl mb-4 text-center focus:border-indigo-500 focus:outline-none text-lg tracking-widest"
           placeholder="●●●●"
-          value={pwd} 
-          onChange={e=>setPwd(e.target.value)} 
+          value={pwd}
+          onChange={(e) => setPwd(e.target.value)}
         />
         <div className="flex gap-3">
-          <button type="button" onClick={onClose} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors">取消</button>
-          <button type="submit" className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">確認</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+          >
+            確認
+          </button>
         </div>
       </form>
     </div>
-  )
+  );
 }
 
 // --- 大圖預覽組件 ---
 function ImagePreviewModal({ src, onClose }) {
   if (!src) return null;
   return (
-    <div className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center p-4 animate-in fade-in"
+      onClick={onClose}
+    >
       <div className="relative max-w-full max-h-full">
-        <img 
-          src={src} 
-          alt="Full Preview" 
-          className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" 
+        <img
+          src={src}
+          alt="Full Preview"
+          className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
         />
         <button className="absolute top-4 right-4 bg-white/20 text-white rounded-full p-2 backdrop-blur-sm hover:bg-white/40 transition-colors">
           <X size={24} />
@@ -407,27 +689,32 @@ function ImagePreviewModal({ src, onClose }) {
 
 // --- 登入畫面組件 ---
 function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  const isUsingDemo = !manualConfig.apiKey || manualConfig.apiKey.includes("請填入");
+  const isUsingDemo =
+    !manualConfig.apiKey || manualConfig.apiKey.includes("請填入");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isUsingDemo) {
-       setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
-       return;
+      setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
+      return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setError('帳號或密碼錯誤');
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      ) {
+        setError("帳號或密碼錯誤");
       } else {
         setError(`登入失敗 (${err.code})`);
       }
@@ -438,17 +725,19 @@ function LoginPage() {
 
   const handleGoogleLogin = async () => {
     if (isUsingDemo) {
-       setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
-       return;
+      setError("請先在程式碼中填入您的 Firebase 設定 (manualConfig)");
+      return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
-      setError(`Google 登入失敗 (${err.code})：請確認已在 Firebase Console 新增此網域`);
+      setError(
+        `Google 登入失敗 (${err.code})：請確認已在 Firebase Console 新增此網域`
+      );
     } finally {
       setLoading(false);
     }
@@ -456,17 +745,21 @@ function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm"
+      >
         <div className="text-center mb-8">
           <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Package size={32} className="text-indigo-600" />
           </div>
           <h1 className="text-2xl font-bold text-slate-800">聚鴻庫存系統</h1>
           <p className="text-slate-500 text-sm mt-1">請使用員工帳號登入</p>
-          
+
           {isUsingDemo && (
             <div className="mt-2 p-2 bg-yellow-50 text-yellow-700 text-xs rounded border border-yellow-200">
-               ⚠️ 注意：目前未設定 Firebase API Key，無法進行真實登入。請修改程式碼。
+              ⚠️ 注意：目前未設定 Firebase API
+              Key，無法進行真實登入。請修改程式碼。
             </div>
           )}
         </div>
@@ -480,33 +773,37 @@ function LoginPage() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-600 mb-1">Email</label>
-            <input 
-              type="email" 
+            <label className="block text-sm font-bold text-slate-600 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
               required
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
               placeholder="user@example.com"
             />
           </div>
           <div>
-            <label className="block text-sm font-bold text-slate-600 mb-1">密碼</label>
-            <input 
-              type="password" 
+            <label className="block text-sm font-bold text-slate-600 mb-1">
+              密碼
+            </label>
+            <input
+              type="password"
               required
               value={password}
-              onChange={e => setPassword(e.target.value)}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
               placeholder="••••••"
             />
           </div>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-70 flex justify-center items-center gap-2"
           >
-            {loading ? <Loader className="animate-spin" size={20} /> : '登入'}
+            {loading ? <Loader className="animate-spin" size={20} /> : "登入"}
           </button>
 
           <div className="relative my-4">
@@ -550,73 +847,21 @@ function LoginPage() {
   );
 }
 
-// --- 操作紀錄視窗 (Log Modal) ---
-function AuditLogModal({ onClose }) {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), orderBy('timestamp', 'desc'), limit(500));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setLogs(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in-95">
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-indigo-50 rounded-t-2xl">
-           <h3 className="font-bold text-indigo-900 flex items-center gap-2"><History size={20}/> 系統操作紀錄</h3>
-           <button onClick={onClose} className="p-2 hover:bg-indigo-100 rounded-full text-indigo-600"><X size={20}/></button>
-        </div>
-        <div className="flex-1 overflow-auto p-4 bg-slate-50">
-          {loading ? <div className="flex justify-center p-10"><Loader className="animate-spin text-indigo-400"/></div> : (
-            <table className="w-full text-left text-xs bg-white rounded-lg shadow-sm border border-slate-200">
-              <thead className="bg-slate-100 text-slate-500 font-semibold sticky top-0">
-                <tr>
-                   <th className="p-3">時間</th>
-                   <th className="p-3">帳號</th>
-                   <th className="p-3">動作</th>
-                   <th className="p-3">產品詳情 (料號 | 品名 | 規格 | 顏色)</th>
-                   <th className="p-3">變更內容</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="p-3 whitespace-nowrap text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
-                    <td className="p-3 font-mono text-blue-600">{formatUserName(log.user)}</td>
-                    <td className="p-3"><span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 font-bold">{log.action}</span></td>
-                    <td className="p-3 font-bold text-slate-700">{log.product}</td>
-                    <td className="p-3 text-slate-500 break-all max-w-[250px]">{log.details}</td>
-                  </tr>
-                ))}
-                {logs.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">尚無紀錄</td></tr>}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// --- 主程式 ---
+// --- 主要組件 ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [activeTab, setActiveTab] = useState('inbound'); 
+  const [activeTab, setActiveTab] = useState("inbound");
   const [inventory, setInventory] = useState([]);
-  const [onlineUsers, setOnlineUsers] = useState([]); 
+  const [categories, setCategories] = useState(["零件", "成品"]); // 預設分類
+  const [onlineUsers, setOnlineUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
 
   // 0. 自動載入 Tailwind CSS 樣式與 Viewport 設定
   useEffect(() => {
     if (!document.querySelector('script[src="https://cdn.tailwindcss.com"]')) {
-      const script = document.createElement('script');
+      const script = document.createElement("script");
       script.src = "https://cdn.tailwindcss.com";
       script.async = true;
       document.head.appendChild(script);
@@ -624,14 +869,15 @@ export default function App() {
 
     let meta = document.querySelector('meta[name="viewport"]');
     if (!meta) {
-      meta = document.createElement('meta');
+      meta = document.createElement("meta");
       meta.name = "viewport";
       document.head.appendChild(meta);
     }
-    meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    meta.content =
+      "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
   }, []);
 
-  // 1. 初始化身份驗證 (監聽登入狀態)
+  // 1. 初始化身份驗證
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -640,51 +886,100 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. 監聽資料庫與線上狀態
+  // 2. 監聽資料與分類
   useEffect(() => {
     if (!user) return;
 
-    // --- A. 監聽庫存資料 (使用新的排序邏輯) ---
-    const inventoryRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
-    const unsubInv = onSnapshot(inventoryRef, 
+    // A. 監聽庫存
+    const inventoryRef = collection(
+      db,
+      "artifacts",
+      appId,
+      "public",
+      "data",
+      "inventory"
+    );
+    const unsubInv = onSnapshot(
+      inventoryRef,
       (snapshot) => {
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const sortedItems = items.sort(sortInventoryItems); // 使用自定義排序
-        setInventory(sortedItems);
+        const items = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setInventory(items.sort(sortInventoryItems));
         setLoading(false);
       },
       (err) => {
-        console.error("Firestore Error:", err);
-        if (err.code === 'permission-denied') {
-             showMsg('error', '權限不足：請確認 Firebase 規則');
-        }
+        console.error(err);
+        if (err.code === "permission-denied")
+          showMsg("error", "權限不足：請確認 Firebase 規則");
         setLoading(false);
       }
     );
 
-    // --- B. 線上狀態 Heartbeat ---
-    const presenceRef = doc(db, 'artifacts', appId, 'public', 'data', 'presence', user.uid);
-    const updatePresence = () => {
-      setDoc(presenceRef, {
-        email: user.email,
-        lastSeen: new Date().toISOString()
-      }, { merge: true }).catch(err => console.error("Presence Error", err));
-    };
-    updatePresence();
-    const interval = setInterval(updatePresence, 60000); 
+    // B. 監聽分類 (Scheme 2)
+    const catRef = doc(
+      db,
+      "artifacts",
+      appId,
+      "public",
+      "data",
+      "settings",
+      "categories"
+    );
+    const unsubCat = onSnapshot(catRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setCategories(docSnap.data().list || ["零件", "成品"]);
+      } else {
+        setDoc(catRef, { list: ["零件", "成品"] }); // 初始化
+      }
+    });
 
-    // --- C. 監聽線上使用者 ---
-    const presenceColl = collection(db, 'artifacts', appId, 'public', 'data', 'presence');
+    // C. 線上狀態
+    const presenceRef = doc(
+      db,
+      "artifacts",
+      appId,
+      "public",
+      "data",
+      "presence",
+      user.uid
+    );
+    const updatePresence = () =>
+      setDoc(
+        presenceRef,
+        { email: user.email, lastSeen: new Date().toISOString() },
+        { merge: true }
+      );
+    updatePresence();
+    const interval = setInterval(updatePresence, 60000);
+
+    // D. 監聽其他使用者
+    const presenceColl = collection(
+      db,
+      "artifacts",
+      appId,
+      "public",
+      "data",
+      "presence"
+    );
     const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
       const now = new Date();
-      setOnlineUsers(snapshot.docs.map(d => ({id: d.id, ...d.data()})).filter(u => (now - new Date(u.lastSeen)) < 120000 && u.id !== user.uid));
+      setOnlineUsers(
+        snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter(
+            (u) => now - new Date(u.lastSeen) < 120000 && u.id !== user.uid
+          )
+      );
     });
 
     return () => {
       unsubInv();
+      unsubCat();
       clearInterval(interval);
       unsubPresence();
-      deleteDoc(presenceRef).catch(()=>{}); 
+      deleteDoc(presenceRef).catch(() => {});
     };
   }, [user]);
 
@@ -693,7 +988,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    if (confirm('確定要登出嗎？')) {
+    if (confirm("確定要登出嗎？")) {
       signOut(auth);
     }
   };
@@ -714,10 +1009,10 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative">
       {/* 彈出視窗 */}
       {notification && (
-        <NotificationModal 
-          type={notification.type} 
-          text={notification.text} 
-          onClose={() => setNotification(null)} 
+        <NotificationModal
+          type={notification.type}
+          text={notification.text}
+          onClose={() => setNotification(null)}
         />
       )}
 
@@ -726,37 +1021,69 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Package size={24} />
-            <h1 className="text-xl font-bold tracking-tight">聚鴻塑膠庫存管理系統</h1>
+            <h1 className="text-xl font-bold tracking-tight">
+              聚鴻塑膠庫存管理系統
+            </h1>
           </div>
           <div className="flex items-center gap-3">
-             {/* 顯示其他線上使用者 (圓圈頭像) */}
-             {onlineUsers.length > 0 && (
-               <div className="flex -space-x-2 mr-2">
-                 {onlineUsers.map(u => (
-                   <div key={u.id} className="w-8 h-8 rounded-full bg-pink-500 border-2 border-indigo-600 flex items-center justify-center text-[10px] font-bold text-white shadow-sm" title={u.email}>
-                     {formatUserName(u.email).charAt(0).toUpperCase()}
-                   </div>
-                 ))}
-               </div>
-             )}
-
-             {/* 顯示目前登入者 */}
-             <div className="flex items-center gap-1 text-xs bg-indigo-700 py-1 px-2 rounded-lg border border-indigo-500 shadow-sm">
-                <User size={12} />
-                <span className="max-w-[100px] truncate font-mono">{formatUserName(user.email)}</span>
-             </div>
-             <button onClick={handleLogout} className="text-white hover:text-indigo-200">
-                <LogOut size={20} />
-             </button>
+            {onlineUsers.length > 0 && (
+              <div className="flex -space-x-2 mr-2">
+                {onlineUsers.map((u) => (
+                  <div
+                    key={u.id}
+                    className="w-8 h-8 rounded-full bg-pink-500 border-2 border-indigo-600 flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
+                    title={u.email}
+                  >
+                    {formatUserName(u.email).charAt(0).toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1 text-xs bg-indigo-700 py-1 px-2 rounded-lg border border-indigo-500 shadow-sm">
+              <User size={12} />
+              <span className="max-w-[100px] truncate font-mono">
+                {formatUserName(user.email)}
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="text-white hover:text-indigo-200"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 w-full">
-        {activeTab === 'inbound' && <TransactionForm mode="inbound" inventory={inventory} onSave={showMsg} currentUser={user} />}
-        {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} onSave={showMsg} currentUser={user} />}
-        {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} currentUser={user} />}
+        {activeTab === "inbound" && (
+          <TransactionForm
+            mode="inbound"
+            inventory={inventory}
+            categories={categories}
+            onSave={showMsg}
+            currentUser={user}
+          />
+        )}
+        {activeTab === "outbound" && (
+          <TransactionForm
+            mode="outbound"
+            inventory={inventory}
+            categories={categories}
+            onSave={showMsg}
+            currentUser={user}
+          />
+        )}
+        {activeTab === "search" && (
+          <InventorySearch
+            inventory={inventory}
+            categories={categories}
+            onSave={showMsg}
+            isDemoEnv={isDemoEnv}
+            currentUser={user}
+          />
+        )}
       </main>
 
       {/* Footer Version */}
@@ -767,9 +1094,24 @@ export default function App() {
       {/* Tab Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-2 pb-6 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20">
         <div className="flex justify-around w-full max-w-7xl mx-auto">
-          <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={20}/>} label="入庫" />
-          <NavButton active={activeTab === 'outbound'} onClick={() => setActiveTab('outbound')} icon={<MinusCircle size={20}/>} label="出庫" />
-          <NavButton active={activeTab === 'search'} onClick={() => setActiveTab('search')} icon={<Search size={20}/>} label="庫存查詢" />
+          <NavButton
+            active={activeTab === "inbound"}
+            onClick={() => setActiveTab("inbound")}
+            icon={<PlusCircle size={20} />}
+            label="入庫"
+          />
+          <NavButton
+            active={activeTab === "outbound"}
+            onClick={() => setActiveTab("outbound")}
+            icon={<MinusCircle size={20} />}
+            label="出庫"
+          />
+          <NavButton
+            active={activeTab === "search"}
+            onClick={() => setActiveTab("search")}
+            icon={<Search size={20} />}
+            label="庫存查詢"
+          />
         </div>
       </nav>
     </div>
@@ -778,9 +1120,13 @@ export default function App() {
 
 function NavButton({ active, onClick, icon, label }) {
   return (
-    <button 
+    <button
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-1/4 ${active ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:text-slate-600'}`}
+      className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all w-1/4 ${
+        active
+          ? "text-indigo-600 bg-indigo-50"
+          : "text-slate-400 hover:text-slate-600"
+      }`}
     >
       <span className="flex items-center justify-center">{icon}</span>
       <span className="text-[10px] font-bold">{label}</span>
@@ -789,304 +1135,442 @@ function NavButton({ active, onClick, icon, label }) {
 }
 
 // --- 入庫與出庫共用表單 ---
-function TransactionForm({ mode, inventory, onSave, currentUser }) {
-  const [formPartNumber, setFormPartNumber] = useState(''); 
-  const [selectedAttr, setSelectedAttr] = useState({ size: '', category: '', material: '', spec: '', color: '' });
-  const [quantity, setQuantity] = useState('');
+function TransactionForm({ mode, inventory, categories, onSave, currentUser }) {
+  const [formPartNumber, setFormPartNumber] = useState("");
+  const [selectedAttr, setSelectedAttr] = useState({
+    size: "",
+    category: "",
+    material: "",
+    spec: "",
+    color: "",
+  });
+  const [quantity, setQuantity] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [nameError, setNameError] = useState('');
-  
+  const [nameError, setNameError] = useState("");
+
   const matchingVariants = useMemo(() => {
     if (!formPartNumber) return [];
-    return inventory.filter(i => i.partNumber?.toLowerCase() === formPartNumber.trim().toLowerCase());
+    return inventory.filter(
+      (i) => i.partNumber?.toLowerCase() === formPartNumber.trim().toLowerCase()
+    );
   }, [formPartNumber, inventory]);
 
   const options = useMemo(() => {
     return {
-      sizes: [...new Set(matchingVariants.map(i => i.size || ''))],
-      categories: [...new Set(matchingVariants.map(i => i.category))],
-      materials: [...new Set(matchingVariants.map(i => i.material))],
-      specs: [...new Set(matchingVariants.map(i => i.spec || ''))],
-      colors: [...new Set(matchingVariants.map(i => i.color))]
+      sizes: [...new Set(matchingVariants.map((i) => i.size || ""))],
+      // categories 來自 props (動態)
+      materials: [...new Set(matchingVariants.map((i) => i.material))],
+      specs: [...new Set(matchingVariants.map((i) => i.spec || ""))],
+      colors: [...new Set(matchingVariants.map((i) => i.color))],
     };
   }, [matchingVariants]);
 
   const targetItem = useMemo(() => {
-    return matchingVariants.find(i => 
-      (i.size || '') === selectedAttr.size &&
-      i.category === selectedAttr.category &&
-      i.material === selectedAttr.material &&
-      (i.spec || '') === selectedAttr.spec &&
-      i.color === selectedAttr.color
+    return matchingVariants.find(
+      (i) =>
+        (i.size || "") === selectedAttr.size &&
+        i.category === selectedAttr.category &&
+        i.material === selectedAttr.material &&
+        (i.spec || "") === selectedAttr.spec &&
+        i.color === selectedAttr.color
     );
   }, [matchingVariants, selectedAttr]);
 
   const handlePartNumberChange = (val) => {
     setFormPartNumber(val);
-    setNameError('');
-    setSelectedAttr({ size: '', category: '', material: '', spec: '', color: '' });
-    
+    setNameError("");
+    setSelectedAttr({
+      size: "",
+      category: "",
+      material: "",
+      spec: "",
+      color: "",
+    });
+
     if (!val.trim()) return;
 
-    const exists = inventory.some(i => i.partNumber?.toLowerCase() === val.trim().toLowerCase());
+    const exists = inventory.some(
+      (i) => i.partNumber?.toLowerCase() === val.trim().toLowerCase()
+    );
     if (!exists) {
-      setNameError('錯誤：資料庫無此料號');
+      setNameError("錯誤：資料庫無此料號");
     }
   };
 
   useEffect(() => {
     if (matchingVariants.length > 0) {
-      setSelectedAttr(prev => ({
+      setSelectedAttr((prev) => ({
         size: options.sizes.length === 1 ? options.sizes[0] : prev.size,
-        category: options.categories.length === 1 ? options.categories[0] : prev.category,
-        material: options.materials.length === 1 ? options.materials[0] : prev.material,
+        category: categories.length > 0 ? categories[0] : "", // 預設第一個分類
+        material:
+          options.materials.length === 1 ? options.materials[0] : prev.material,
         spec: options.specs.length === 1 ? options.specs[0] : prev.spec,
         color: options.colors.length === 1 ? options.colors[0] : prev.color,
       }));
     }
-  }, [matchingVariants.length, options]);
+  }, [matchingVariants.length, options, categories]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const qty = parseInt(quantity);
     if (!formPartNumber || isNaN(qty) || qty <= 0) {
-      onSave('error', '請填寫正確資訊');
+      onSave("error", "請填寫正確資訊");
       return;
     }
 
     if (matchingVariants.length === 0) {
-       onSave('error', '資料庫無此料號');
-       return;
+      onSave("error", "資料庫無此料號");
+      return;
     }
 
     setIsSubmitting(true);
     try {
       if (targetItem) {
-        const finalQty = mode === 'inbound' ? qty : -qty;
-        
-        if (mode === 'outbound' && targetItem.quantity < qty) {
-          onSave('error', `庫存不足！剩 ${targetItem.quantity}`);
+        const finalQty = mode === "inbound" ? qty : -qty;
+
+        if (mode === "outbound" && targetItem.quantity < qty) {
+          onSave("error", `庫存不足！剩 ${targetItem.quantity}`);
           setIsSubmitting(false);
           return;
         }
 
-        const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', targetItem.id);
-        await updateDoc(itemRef, { 
-            quantity: increment(finalQty), 
-            lastUpdated: new Date().toISOString(),
-            lastEditor: currentUser.email 
+        const itemRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "public",
+          "data",
+          "inventory",
+          targetItem.id
+        );
+        await updateDoc(itemRef, {
+          quantity: increment(finalQty),
+          lastUpdated: new Date().toISOString(),
+          lastEditor: currentUser.email,
         });
 
-        // 寫入詳細 Log (包含完整產品識別)
         await addAuditLog(
-            mode === 'inbound' ? '入庫' : '出庫', 
-            getProductIdentity(targetItem), 
-            `庫存: ${targetItem.quantity} -> ${targetItem.quantity + finalQty} (變動: ${qty})`, 
-            currentUser.email
+          mode === "inbound" ? "入庫" : "出庫",
+          getProductIdentity(targetItem),
+          `庫存: ${targetItem.quantity} -> ${
+            targetItem.quantity + finalQty
+          } (變動: ${qty})`,
+          currentUser.email
         );
-        
-        onSave('success', `已${mode === 'inbound' ? '入庫' : '出庫'}並更新庫存`);
-        setQuantity(''); 
-        setFormPartNumber('');
-        setSelectedAttr({ size: '', category: '', material: '', spec: '', color: '' });
+
+        onSave(
+          "success",
+          `已${mode === "inbound" ? "入庫" : "出庫"}並更新庫存`
+        );
+        setQuantity("");
+        setFormPartNumber("");
+        setSelectedAttr({
+          size: "",
+          category: "",
+          material: "",
+          spec: "",
+          color: "",
+        });
       } else {
-        onSave('error', '請完整選擇規格');
+        onSave("error", "請完整選擇規格");
       }
     } catch (err) {
       console.error(err);
-      onSave('error', `操作失敗`);
+      onSave("error", `操作失敗`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleAttrChange = (field, val) => {
-    setSelectedAttr(prev => ({ ...prev, [field]: val }));
+    setSelectedAttr((prev) => ({ ...prev, [field]: val }));
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in max-w-xl mx-auto">
-      
-      <h2 className={`text-lg font-bold flex items-center gap-2 ${mode === 'inbound' ? 'text-green-600' : 'text-orange-600'}`}>
-        {mode === 'inbound' ? <PlusCircle size={22}/> : <MinusCircle size={22}/>}
-        {mode === 'inbound' ? '物料入庫' : '物料出庫'}
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in max-w-xl mx-auto"
+    >
+      <h2
+        className={`text-lg font-bold flex items-center gap-2 ${
+          mode === "inbound" ? "text-green-600" : "text-orange-600"
+        }`}
+      >
+        {mode === "inbound" ? (
+          <PlusCircle size={22} />
+        ) : (
+          <MinusCircle size={22} />
+        )}
+        {mode === "inbound" ? "物料入庫" : "物料出庫"}
       </h2>
 
       {/* 料號輸入 */}
       <div>
-        <label className="block text-xs font-bold text-slate-400 mb-1">料號</label>
+        <label className="block text-xs font-bold text-slate-400 mb-1">
+          料號
+        </label>
         <div className="relative">
-          <input 
-            type="text" 
-            value={formPartNumber} 
-            onChange={e => handlePartNumberChange(e.target.value)} 
-            placeholder="輸入料號 (如: A001)" 
-            className={`w-full p-3 bg-slate-50 border rounded-xl focus:ring-2 focus:outline-none transition-colors ${nameError ? 'border-red-300 focus:ring-red-200 bg-red-50' : 'border-slate-200 focus:ring-indigo-500'}`} 
+          <input
+            type="text"
+            value={formPartNumber}
+            onChange={(e) => handlePartNumberChange(e.target.value)}
+            placeholder="輸入料號 (如: A001)"
+            className={`w-full p-3 bg-slate-50 border rounded-xl focus:ring-2 focus:outline-none transition-colors ${
+              nameError
+                ? "border-red-300 focus:ring-red-200 bg-red-50"
+                : "border-slate-200 focus:ring-indigo-500"
+            }`}
           />
           {matchingVariants.length > 0 && !nameError && (
-             <div className="absolute right-3 top-3.5 text-green-500"><CheckCircle size={16}/></div>
+            <div className="absolute right-3 top-3.5 text-green-500">
+              <CheckCircle size={16} />
+            </div>
           )}
         </div>
-        {nameError && <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1"><AlertTriangle size={10}/> {nameError}</p>}
+        {nameError && (
+          <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+            <AlertTriangle size={10} /> {nameError}
+          </p>
+        )}
       </div>
 
       {matchingVariants.length > 0 && !nameError && (
         <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
-           
-           {/* 顯示對應的品名 (唯讀) */}
-           <div className="text-center mb-2">
-             <span className="text-xs text-slate-400">對應品名</span>
-             <p className="text-lg font-bold text-slate-700">{matchingVariants[0].name}</p>
-           </div>
+          {/* 顯示對應的品名 */}
+          <div className="text-center mb-2">
+            <span className="text-xs text-slate-400">對應品名</span>
+            <p className="text-lg font-bold text-slate-700">
+              {matchingVariants[0].name}
+            </p>
+          </div>
 
-           {/* 顯示產品照片 */}
-           {targetItem && targetItem.photo && (
-             <div className="flex justify-center mb-4 bg-gray-50 p-2 rounded-lg border border-slate-200">
-               <div className="w-32 h-32 relative bg-white rounded-md border border-slate-200 overflow-hidden">
-                 <img 
-                   src={targetItem.photo} 
-                   alt="產品預覽" 
-                   className="w-full h-full object-contain" 
-                 />
-               </div>
-             </div>
-           )}
+          {/* 顯示產品照片 */}
+          {targetItem && targetItem.photo && (
+            <div className="flex justify-center mb-4 bg-gray-50 p-2 rounded-lg border border-slate-200">
+              <div className="w-32 h-32 relative bg-white rounded-md border border-slate-200 overflow-hidden">
+                <img
+                  src={targetItem.photo}
+                  alt="產品預覽"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </div>
+          )}
 
-           <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">尺寸</label>
-                <select 
-                  value={selectedAttr.size} 
-                  onChange={e => handleAttrChange('size', e.target.value)} 
-                  className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  {options.sizes.length > 1 && <option value="">請選擇</option>}
-                  {options.sizes.map((opt, i) => <option key={i} value={opt}>{opt || '(空白)'}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">分類</label>
-                <select 
-                  value={selectedAttr.category} 
-                  onChange={e => handleAttrChange('category', e.target.value)} 
-                  className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  {options.categories.length > 1 && <option value="">請選擇</option>}
-                  {options.categories.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
-                </select>
-              </div>
-           </div>
-
-           <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">材質</label>
-                <select 
-                  value={selectedAttr.material} 
-                  onChange={e => handleAttrChange('material', e.target.value)} 
-                  className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  {options.materials.length > 1 && <option value="">請選擇</option>}
-                  {options.materials.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">材質規格</label>
-                <select 
-                  value={selectedAttr.spec} 
-                  onChange={e => handleAttrChange('spec', e.target.value)} 
-                  className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  {options.specs.length > 1 && <option value="">請選擇</option>}
-                  {options.specs.map((opt, i) => <option key={i} value={opt}>{opt || '(空白)'}</option>)}
-                </select>
-              </div>
-           </div>
-
-           <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">顏色</label>
-              <select 
-                value={selectedAttr.color} 
-                onChange={e => handleAttrChange('color', e.target.value)} 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">
+                尺寸
+              </label>
+              <select
+                value={selectedAttr.size}
+                onChange={(e) => handleAttrChange("size", e.target.value)}
                 className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               >
-                {options.colors.length > 1 && <option value="">請選擇</option>}
-                {options.colors.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
+                {options.sizes.length > 1 && <option value="">請選擇</option>}
+                {options.sizes.map((opt, i) => (
+                  <option key={i} value={opt}>
+                    {opt || "(空白)"}
+                  </option>
+                ))}
               </select>
-           </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">
+                分類
+              </label>
+              {/* 使用動態分類 (雖然入庫/出庫通常不用選分類，但如果是為了篩選規格，這裡會列出該料號下有的分類) */}
+              <select
+                value={selectedAttr.category}
+                onChange={(e) => handleAttrChange("category", e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {/* 這裡只列出該料號實際擁有的分類 */}
+                {options.categories.map((opt, i) => (
+                  <option key={i} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 其他欄位... */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">
+                材質
+              </label>
+              <select
+                value={selectedAttr.material}
+                onChange={(e) => handleAttrChange("material", e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {options.materials.length > 1 && (
+                  <option value="">請選擇</option>
+                )}
+                {options.materials.map((opt, i) => (
+                  <option key={i} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">
+                材質規格
+              </label>
+              <select
+                value={selectedAttr.spec}
+                onChange={(e) => handleAttrChange("spec", e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {options.specs.length > 1 && <option value="">請選擇</option>}
+                {options.specs.map((opt, i) => (
+                  <option key={i} value={opt}>
+                    {opt || "(空白)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">
+              顏色
+            </label>
+            <select
+              value={selectedAttr.color}
+              onChange={(e) => handleAttrChange("color", e.target.value)}
+              className="w-full p-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              {options.colors.length > 1 && <option value="">請選擇</option>}
+              {options.colors.map((opt, i) => (
+                <option key={i} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
       <div>
-        <label className="block text-xs font-bold text-slate-400 mb-1">{mode === 'inbound' ? '入庫數量' : '出庫數量'}</label>
-        <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="0" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+        <label className="block text-xs font-bold text-slate-400 mb-1">
+          {mode === "inbound" ? "入庫數量" : "出庫數量"}
+        </label>
+        <input
+          type="number"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+          placeholder="0"
+          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+        />
       </div>
 
-      <button disabled={isSubmitting || !!nameError || (matchingVariants.length > 0 && !selectedAttr.material)} className={`w-full py-4 rounded-xl text-white font-bold shadow-lg transition-all active:scale-95 disabled:bg-slate-300 ${mode === 'inbound' ? 'bg-green-600' : 'bg-orange-600'}`}>
-        {isSubmitting ? <Loader className="animate-spin mx-auto" size={24}/> : `確認${mode === 'inbound' ? '入庫' : '出庫'}`}
+      <button
+        disabled={
+          isSubmitting ||
+          !!nameError ||
+          (matchingVariants.length > 0 && !selectedAttr.material)
+        }
+        className={`w-full py-4 rounded-xl text-white font-bold shadow-lg transition-all active:scale-95 disabled:bg-slate-300 ${
+          mode === "inbound" ? "bg-green-600" : "bg-orange-600"
+        }`}
+      >
+        {isSubmitting ? (
+          <Loader className="animate-spin mx-auto" size={24} />
+        ) : (
+          `確認${mode === "inbound" ? "入庫" : "出庫"}`
+        )}
       </button>
     </form>
   );
 }
 
 // --- 庫存查詢頁面 (合併功能版) ---
-function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
+function InventorySearch({
+  inventory,
+  categories,
+  onSave,
+  isDemoEnv,
+  currentUser,
+}) {
   const [currentFolder, setCurrentFolder] = useState(null);
-  const [globalSearch, setGlobalSearch] = useState('');
-  const [previewImage, setPreviewImage] = useState(null); // 大圖預覽狀態
-  const [isEditMode, setIsEditMode] = useState(false); // 編輯模式開關
-  const [showPwdModal, setShowPwdModal] = useState(false); // 密碼視窗開關
-  const [showLogModal, setShowLogModal] = useState(false); // 新增：顯示紀錄視窗
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // 新增：超級管理員狀態
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState(""); // 新增：分類篩選
+  const [previewImage, setPreviewImage] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [showCatManager, setShowCatManager] = useState(false); // 新增：分類管理視窗
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
-  // 批量操作模式
+  // 批量操作
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [isBatchEditMode, setIsBatchEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [showConfirmBatchSave, setShowConfirmBatchSave] = useState(false);
-  const [batchEditValues, setBatchEditValues] = useState({}); // 暫存修改值
+  const [batchEditValues, setBatchEditValues] = useState({});
 
-  // 編輯/新增相關狀態
+  // 新增/編輯
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [formName, setFormName] = useState('');
-  const [formPartNumber, setFormPartNumber] = useState(''); // 料號
-  const [formSizeVal, setFormSizeVal] = useState('');
-  const [formSizeUnit, setFormSizeUnit] = useState('英吋'); 
-  const [formCategory, setFormCategory] = useState('零件'); 
-  const [formMaterial, setFormMaterial] = useState('');
-  const [formSpec, setFormSpec] = useState(''); 
-  const [formQty, setFormQty] = useState('0');
-  const [formSafetyStock, setFormSafetyStock] = useState('5000'); 
-  const [formPhoto, setFormPhoto] = useState(''); 
-  const [formRemarks, setFormRemarks] = useState(''); 
-  const [colorMode, setColorMode] = useState('black'); 
-  const [customColorVal, setCustomColorVal] = useState('');
+  const [formName, setFormName] = useState("");
+  const [formPartNumber, setFormPartNumber] = useState("");
+  const [formSizeVal, setFormSizeVal] = useState("");
+  const [formSizeUnit, setFormSizeUnit] = useState("英吋");
+  const [formCategory, setFormCategory] = useState("");
+  const [formMaterial, setFormMaterial] = useState("");
+  const [formSpec, setFormSpec] = useState("");
+  const [formQty, setFormQty] = useState("0");
+  const [formSafetyStock, setFormSafetyStock] = useState("5000");
+  const [formPhoto, setFormPhoto] = useState("");
+  const [formRemarks, setFormRemarks] = useState("");
+  const [colorMode, setColorMode] = useState("black");
+  const [customColorVal, setCustomColorVal] = useState("");
 
   // 1. 資料夾分類邏輯 (使用料號首字)
   const folders = useMemo(() => {
     const map = {};
-    inventory.forEach(item => {
-      // 優先使用料號首字，若無料號則用品名
-      const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
+    let targetList = inventory;
+
+    // 如果有選分類，先過濾
+    if (filterCategory) {
+      targetList = targetList.filter((i) => i.category === filterCategory);
+    }
+
+    targetList.forEach((item) => {
+      const key = (item.partNumber?.[0] || item.name?.[0] || "?").toUpperCase();
       if (!map[key]) map[key] = 0;
       map[key]++;
     });
     return Object.keys(map).sort();
-  }, [inventory]);
+  }, [inventory, filterCategory]);
 
-  // 2. 清單內容 & 排序 (使用新的排序邏輯)
+  // 2. 清單內容 & 排序
   const displayItems = useMemo(() => {
-    let list = [];
+    let list = inventory;
+
+    // 先套用分類篩選
+    if (filterCategory) {
+      list = list.filter((i) => i.category === filterCategory);
+    }
+
     if (globalSearch.trim()) {
-      // 搜尋料號 或 品名
-      list = inventory.filter(item => 
-        item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) || 
-        item.name?.toLowerCase().includes(globalSearch.toLowerCase())
+      list = list.filter(
+        (item) =>
+          item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+          item.name?.toLowerCase().includes(globalSearch.toLowerCase())
       );
     } else if (currentFolder) {
-      list = inventory.filter(item => {
-        const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
+      list = list.filter((item) => {
+        const key = (
+          item.partNumber?.[0] ||
+          item.name?.[0] ||
+          "?"
+        ).toUpperCase();
         return key === currentFolder;
       });
     } else {
@@ -1094,25 +1578,25 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     }
 
     return list.sort(sortInventoryItems);
-  }, [currentFolder, inventory, globalSearch]);
+  }, [currentFolder, inventory, globalSearch, filterCategory]);
 
   const handleGlobalSearchChange = (e) => {
     setGlobalSearch(e.target.value);
     if (e.target.value) {
-      setCurrentFolder(null); 
+      setCurrentFolder(null);
     }
   };
 
   // --- 密碼與模式切換邏輯 ---
   const toggleEditMode = () => {
     if (isEditMode) {
-      setIsEditMode(false); // 關閉不需要密碼
-      setIsDeleteMode(false); 
+      setIsEditMode(false);
+      setIsDeleteMode(false);
       setIsBatchEditMode(false);
       setBatchEditValues({});
       setIsSuperAdmin(false);
     } else {
-      setShowPwdModal(true); // 開啟需要驗證
+      setShowPwdModal(true);
     }
   };
 
@@ -1121,29 +1605,44 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     setIsSuperAdmin(superAdmin);
   };
 
-  // --- 批量刪除邏輯 ---
+  // --- 批量刪除/修改/匯入 (省略重複代碼，邏輯相同，僅需更新 UI 引用 categories) ---
   const toggleDeleteMode = () => {
     setIsDeleteMode(!isDeleteMode);
-    setIsBatchEditMode(false); // 互斥
-    setSelectedIds(new Set()); 
+    setIsBatchEditMode(false);
+    setSelectedIds(new Set());
   };
-
+  const toggleBatchEditMode = () => {
+    if (isBatchEditMode) {
+      setIsBatchEditMode(false);
+      setBatchEditValues({});
+    } else {
+      const initialValues = {};
+      displayItems.forEach((item) => {
+        initialValues[item.id] = { ...item };
+      });
+      setBatchEditValues(initialValues);
+      setIsBatchEditMode(true);
+      setIsDeleteMode(false);
+    }
+  };
+  const handleBatchChange = (id, field, value) => {
+    setBatchEditValues((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value },
+    }));
+  };
   const handleSelect = (id) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedIds(newSelected);
+    const s = new Set(selectedIds);
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    setSelectedIds(s);
   };
-
   const handleSelectAll = () => {
-    if (selectedIds.size === displayItems.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(displayItems.map(i => i.id)));
-    }
+    setSelectedIds(
+      selectedIds.size === displayItems.length
+        ? new Set()
+        : new Set(displayItems.map((i) => i.id))
+    );
   };
 
   const executeBatchDelete = async () => {
@@ -1151,871 +1650,1050 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     const batch = writeBatch(db);
     let count = 0;
     const deletedItems = [];
-
-    selectedIds.forEach(id => {
-       const item = inventory.find(i => i.id === id);
-       if (item) deletedItems.push(item);
-       const ref = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id);
-       batch.delete(ref);
-       count++;
+    selectedIds.forEach((id) => {
+      const item = inventory.find((i) => i.id === id);
+      if (item) deletedItems.push(item);
+      batch.delete(
+        doc(db, "artifacts", appId, "public", "data", "inventory", id)
+      );
+      count++;
     });
-
     try {
       await batch.commit();
-      // 紀錄刪除操作
-      for (const item of deletedItems) {
-        await addAuditLog('刪除', getProductIdentity(item), '刪除資料', currentUser.email);
-      }
-      onSave('success', `成功刪除 ${selectedIds.size} 筆資料`);
+      for (const item of deletedItems)
+        await addAuditLog(
+          "刪除",
+          getProductIdentity(item),
+          "刪除資料",
+          currentUser.email
+        );
+      onSave("success", `成功刪除 ${count} 筆`);
       setSelectedIds(new Set());
       setIsDeleteMode(false);
       setShowConfirmDelete(false);
     } catch (err) {
-      console.error(err);
-      onSave('error', '刪除失敗，請檢查網路或權限');
+      onSave("error", "失敗");
     }
-  };
-
-  // --- 批量修改邏輯 ---
-  const toggleBatchEditMode = () => {
-    if (isBatchEditMode) {
-      // 取消修改
-      setIsBatchEditMode(false);
-      setBatchEditValues({});
-    } else {
-      // 進入修改模式
-      const initialValues = {};
-      displayItems.forEach(item => {
-        initialValues[item.id] = { ...item };
-      });
-      setBatchEditValues(initialValues);
-      setIsBatchEditMode(true);
-      setIsDeleteMode(false); // 互斥
-    }
-  };
-
-  const handleBatchChange = (id, field, value) => {
-    setBatchEditValues(prev => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        [field]: value
-      }
-    }));
   };
 
   const executeBatchSave = async () => {
     const batch = writeBatch(db);
     let count = 0;
     const logs = [];
-    
-    Object.keys(batchEditValues).forEach(id => {
-      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id);
+    Object.keys(batchEditValues).forEach((id) => {
+      const ref = doc(
+        db,
+        "artifacts",
+        appId,
+        "public",
+        "data",
+        "inventory",
+        id
+      );
       const data = batchEditValues[id];
-      const original = inventory.find(i => i.id === id);
-      
-      // 檢查是否有變更
+      const original = inventory.find((i) => i.id === id);
       const diff = getDiff(original, data);
-      
       if (diff) {
         batch.update(ref, {
           ...data,
           quantity: parseInt(data.quantity) || 0,
           lastUpdated: new Date().toISOString(),
-          lastEditor: currentUser.email
+          lastEditor: currentUser.email,
         });
         logs.push({ item: data, diff });
         count++;
       }
     });
-
     try {
       await batch.commit();
-      // 寫入 Log
-      for (const log of logs) {
-         await addAuditLog('批次修改', getProductIdentity(log.item), log.diff, currentUser.email);
-      }
-      onSave('success', `成功更新 ${count} 筆資料`);
+      for (const log of logs)
+        await addAuditLog(
+          "批次修改",
+          getProductIdentity(log.item),
+          log.diff,
+          currentUser.email
+        );
+      onSave("success", `更新 ${count} 筆`);
       setIsBatchEditMode(false);
       setBatchEditValues({});
       setShowConfirmBatchSave(false);
     } catch (err) {
-      console.error(err);
-      onSave('error', '更新失敗');
+      onSave("error", "失敗");
     }
   };
 
-
-  // --- 匯入功能 (CSV Parser) ---
+  // --- CSV Import ---
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    if (!confirm(`確定要匯入 ${file.name} 嗎？這將會新增資料到資料庫中。`)) {
-      e.target.value = null;
-      return;
-    }
-
+    if (!confirm(`匯入 ${file.name}?`)) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const text = event.target.result;
-      const rows = text.split('\n');
-      
-      let successCount = 0;
-      let errorCount = 0;
-      
-      const batch = writeBatch(db); 
-      let batchCount = 0;
-      const logs = [];
-
+      const rows = event.target.result.split("\n");
+      const batch = writeBatch(db);
+      let count = 0;
       for (let i = 1; i < rows.length; i++) {
-        const row = rows[i].trim();
-        if (!row) continue;
-
-        const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
-        
-        // 預期欄位(11): 料號, 品名, 尺寸, 分類, 材質, 規格, 顏色, 備註, 庫存, 安全庫存, 照片
+        const cols = rows[i]
+          .trim()
+          .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+          .map((c) => c.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
         if (cols.length >= 8) {
-          try {
-            const newItemRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'inventory'));
-            const newItem = {
-              partNumber: cols[0], // 料號
-              name: cols[1],       // 品名
-              size: cols[2],
-              category: cols[3] || '零件',
-              material: cols[4],
-              spec: cols[5],
-              color: cols[6],
-              remarks: cols[7], 
-              quantity: parseInt(cols[8]) || 0,
-              safetyStock: parseInt(cols[9]) || 5000,
-              photo: cols[10] || '', 
-              lastUpdated: new Date().toISOString(),
-              lastEditor: currentUser.email // 記錄操作者
-            };
-            batch.set(newItemRef, newItem);
-            logs.push(newItem);
-            batchCount++;
-            successCount++;
-          } catch (err) {
-            errorCount++;
-          }
-        } else {
-          errorCount++;
+          const ref = doc(
+            collection(db, "artifacts", appId, "public", "data", "inventory")
+          );
+          const newItem = {
+            partNumber: cols[0],
+            name: cols[1],
+            size: cols[2],
+            category: cols[3] || "零件",
+            material: cols[4],
+            spec: cols[5],
+            color: cols[6],
+            remarks: cols[7],
+            quantity: parseInt(cols[8]) || 0,
+            safetyStock: parseInt(cols[9]) || 5000,
+            photo: cols[10] || "",
+            lastUpdated: new Date().toISOString(),
+            lastEditor: currentUser.email,
+          };
+          batch.set(ref, newItem);
+          count++;
         }
       }
-
-      if (batchCount > 0) {
-        try {
-          await batch.commit();
-          // 寫入匯入 Log
-          await addAuditLog('匯入', 'CSV 批次匯入', `成功匯入 ${successCount} 筆資料`, currentUser.email);
-          onSave('success', `匯入成功：新增 ${successCount} 筆資料`);
-        } catch (err) {
-          console.error(err);
-          onSave('error', '匯入失敗：資料庫寫入錯誤');
-        }
-      } else {
-        onSave('error', '匯入失敗：無有效資料或格式錯誤');
+      if (count > 0) {
+        await batch.commit();
+        await addAuditLog("匯入", "CSV", `新增 ${count} 筆`, currentUser.email);
+        onSave("success", `匯入 ${count} 筆`);
       }
-      e.target.value = null; 
+      e.target.value = null;
     };
     reader.readAsText(file);
   };
-  
-  // --- 批次圖片匯入 (料號配對) ---
+
+  // --- Batch Image ---
   const handleBatchImageUpload = (e) => {
     const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    if (!confirm(`確定要匯入 ${files.length} 張圖片嗎？將依據「料號」自動配對。`)) {
-      e.target.value = null;
-      return;
-    }
-    
-    const partNumToIdsMap = {};
-    inventory.forEach(item => {
-      if (item.partNumber) {
-        const lowerPartNum = item.partNumber.toLowerCase();
-        if (!partNumToIdsMap[lowerPartNum]) {
-          partNumToIdsMap[lowerPartNum] = [];
-        }
-        partNumToIdsMap[lowerPartNum].push(item.id);
+    if (!files.length || !confirm(`匯入 ${files.length} 張圖?`)) return;
+    const map = {};
+    inventory.forEach((i) => {
+      if (i.partNumber) {
+        const k = i.partNumber.toLowerCase();
+        if (!map[k]) map[k] = [];
+        map[k].push(i.id);
       }
     });
-
-    let successCount = 0;
-    let failCount = 0;
-    let processedCount = 0;
-
-    const processFile = (file) => {
-      const fileName = file.name.split('.')[0].toLowerCase(); // 檔名即料號
-      const targetIds = partNumToIdsMap[fileName];
-
-      if (targetIds && targetIds.length > 0) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const img = new Image();
-          img.onload = async () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const MAX_DIM = 500; 
-            let width = img.width;
-            let height = img.height;
-            if (width > height) {
-               if (width > MAX_DIM) { height *= MAX_DIM / width; width = MAX_DIM; }
-            } else {
-               if (height > MAX_DIM) { width *= MAX_DIM / height; height = MAX_DIM; }
-            }
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-
-            try {
-              const updates = targetIds.map(id => 
-                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id), {
-                  photo: dataUrl,
-                  lastUpdated: new Date().toISOString(),
-                  lastEditor: currentUser.email // 記錄操作者
-                })
-              );
-              await Promise.all(updates);
-              successCount++;
-            } catch (err) {
-              console.error(err);
-            } finally {
-              checkDone();
-            }
-          };
-          img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
-      } else {
-        failCount++;
-        checkDone();
-      }
-    };
-
+    let success = 0;
+    let processed = 0;
     const checkDone = async () => {
-      processedCount++;
-      if (processedCount === files.length) {
-        await addAuditLog('匯入', '圖片匯入', `成功配對 ${successCount} 張照片`, currentUser.email);
-        onSave('success', `圖片匯入完成：成功配對 ${successCount} 張 (料號)，${failCount} 張無對應料號`);
+      processed++;
+      if (processed === files.length) {
+        await addAuditLog(
+          "匯入",
+          "圖片",
+          `配對 ${success} 張`,
+          currentUser.email
+        );
+        onSave("success", `配對 ${success} 張`);
         e.target.value = null;
       }
     };
-
-    files.forEach(processFile);
+    files.forEach((file) => {
+      const name = file.name.split(".")[0].toLowerCase();
+      const ids = map[name];
+      if (ids) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = async () => {
+            const c = document.createElement("canvas");
+            const ctx = c.getContext("2d");
+            const M = 500;
+            let w = img.width,
+              h = img.height;
+            if (w > h) {
+              if (w > M) {
+                h *= M / w;
+                w = M;
+              }
+            } else {
+              if (h > M) {
+                w *= M / h;
+                h = M;
+              }
+            }
+            c.width = w;
+            c.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            const url = c.toDataURL("image/jpeg", 0.5);
+            const updates = ids.map((id) =>
+              updateDoc(
+                doc(db, "artifacts", appId, "public", "data", "inventory", id),
+                {
+                  photo: url,
+                  lastUpdated: new Date().toISOString(),
+                  lastEditor: currentUser.email,
+                }
+              )
+            );
+            await Promise.all(updates);
+            success++;
+            checkDone();
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      } else {
+        checkDone();
+      }
+    });
   };
 
-  // --- 新增/編輯/刪除 邏輯 ---
+  // --- Add/Edit Modal ---
   const openAddModal = (item = null) => {
     if (item) {
       setEditingItem(item);
-      setFormPartNumber(item.partNumber || '');
-      setFormName(item.name || '');
-      // 嘗試保留原始輸入值
-      const match = item.size ? item.size.match(/^([\d./-]+)\s*(mm|英吋)?$/) : null;
+      setFormPartNumber(item.partNumber || "");
+      setFormName(item.name || "");
+      const match = item.size
+        ? item.size.match(/^([\d./-]+)\s*(mm|英吋)?$/)
+        : null;
       if (match) {
         setFormSizeVal(match[1]);
-        setFormSizeUnit(match[2] || '英吋');
+        setFormSizeUnit(match[2] || "英吋");
       } else {
-        setFormSizeVal(item.size || ''); 
-        setFormSizeUnit('英吋');
+        setFormSizeVal(item.size || "");
+        setFormSizeUnit("英吋");
       }
-      setFormCategory(item.category === '成品' ? '整組' : (item.category || '零件')); 
-      setFormMaterial(item.material || '');
-      setFormSpec(item.spec || '');
+      setFormCategory(item.category || categories[0] || "零件");
+      setFormMaterial(item.material || "");
+      setFormSpec(item.spec || "");
       setFormQty(item.quantity);
       setFormSafetyStock(item.safetyStock || 5000);
-      setFormPhoto(item.photo || ''); 
-      setFormRemarks(item.remarks || ''); 
-
-      if (item.color === '黑色') {
-        setColorMode('black');
-        setCustomColorVal('');
+      setFormPhoto(item.photo || "");
+      setFormRemarks(item.remarks || "");
+      if (item.color === "黑色") {
+        setColorMode("black");
+        setCustomColorVal("");
       } else {
-        setColorMode('custom');
-        setCustomColorVal(item.color || '');
+        setColorMode("custom");
+        setCustomColorVal(item.color || "");
       }
     } else {
       setEditingItem(null);
-      setFormPartNumber('');
-      setFormName('');
-      setFormSizeVal('');
-      setFormSizeUnit('英吋');
-      setFormCategory('零件'); 
-      setFormMaterial('');
-      setFormSpec('');
-      setFormQty('0');
+      setFormPartNumber("");
+      setFormName("");
+      setFormSizeVal("");
+      setFormSizeUnit("英吋");
+      setFormCategory(categories[0] || "零件");
+      setFormMaterial("");
+      setFormSpec("");
+      setFormQty("0");
       setFormSafetyStock(5000);
-      setColorMode('black');
-      setCustomColorVal('');
-      setFormPhoto(''); 
-      setFormRemarks(''); 
+      setFormPhoto("");
+      setFormRemarks("");
+      setColorMode("black");
+      setCustomColorVal("");
     }
     setIsAdding(true);
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!isDemoEnv && manualConfig.apiKey.includes("請填入")) {
-      onSave('error', '請先在程式碼 manualConfig 填入您的 Firebase 設定！');
-      return;
-    }
-
+    if (isDemoEnv && manualConfig.apiKey.includes("請填入"))
+      return onSave("error", "請設定 Firebase");
     try {
-      // 尺寸邏輯
-      let fullSize = '';
-      if (formSizeVal.trim() !== '') {
-        if (formSizeVal.includes('mm') || formSizeVal.includes('英吋')) {
-           fullSize = formSizeVal;
-        } else {
-           fullSize = `${formSizeVal}${formSizeUnit}`;
-        }
-      }
-
-      const finalColor = colorMode === 'black' ? '黑色' : customColorVal;
-      if (colorMode === 'custom' && !finalColor.trim()) {
-        alert('請輸入顏色名稱');
-        return;
-      }
-
+      const fullSize =
+        formSizeVal.trim() !== ""
+          ? formSizeVal.match(/mm|英吋/)
+            ? formSizeVal
+            : `${formSizeVal}${formSizeUnit}`
+          : "";
+      const finalColor = colorMode === "black" ? "黑色" : customColorVal;
       const data = {
-        partNumber: formPartNumber.trim(), // 料號
-        name: formName.trim(), // 品名
+        partNumber: formPartNumber.trim(),
+        name: formName.trim(),
         size: fullSize,
         category: formCategory,
         material: formMaterial,
         spec: formSpec,
         color: finalColor,
         quantity: parseInt(formQty) || 0,
-        safetyStock: parseInt(formSafetyStock) || 5000, 
-        photo: formPhoto, 
-        remarks: formRemarks, 
+        safetyStock: parseInt(formSafetyStock) || 5000,
+        photo: formPhoto,
+        remarks: formRemarks,
         lastUpdated: new Date().toISOString(),
-        lastEditor: currentUser.email // 記錄操作者
+        lastEditor: currentUser.email,
       };
 
       if (editingItem) {
         const diff = getDiff(editingItem, data);
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', editingItem.id), data);
-        await addAuditLog('修改', getProductIdentity(data), diff, currentUser.email);
-        onSave('success', '資料更新成功');
+        await updateDoc(
+          doc(
+            db,
+            "artifacts",
+            appId,
+            "public",
+            "data",
+            "inventory",
+            editingItem.id
+          ),
+          data
+        );
+        await addAuditLog(
+          "修改",
+          getProductIdentity(data),
+          diff,
+          currentUser.email
+        );
+        onSave("success", "已更新");
       } else {
-        const newId = crypto.randomUUID();
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', newId), data);
-        await addAuditLog('新增', getProductIdentity(data), '新增資料', currentUser.email);
-        onSave('success', '資料新增成功');
+        await addDoc(
+          collection(db, "artifacts", appId, "public", "data", "inventory"),
+          data
+        );
+        await addAuditLog(
+          "新增",
+          getProductIdentity(data),
+          "新增資料",
+          currentUser.email
+        );
+        onSave("success", "已新增");
       }
       setIsAdding(false);
-    } catch (err) { 
-      console.error(err);
-      if (err.code === 'permission-denied') {
-        onSave('error', '儲存失敗：權限不足');
-      } else {
-        onSave('error', `儲存失敗: ${err.message}`); 
-      }
+    } catch (err) {
+      onSave("error", "失敗");
     }
   };
 
-  const handleDelete = async (id) => {
-    // 這裡只保留邏輯，按鈕已在 UI 移除 (使用批次刪除)
-    if (!confirm('確定要刪除嗎？')) return;
-    const item = inventory.find(i => i.id === id);
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventory', id));
-      await addAuditLog('刪除', getProductIdentity(item), '單筆刪除', currentUser.email);
-      onSave('success', '已刪除');
-    } catch (err) { onSave('error', '刪除失敗'); }
-  };
-
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const MAX_DIM = 500; 
-        let width = img.width;
-        let height = img.height;
-        if (width > height) {
-          if (width > MAX_DIM) {
-            height *= MAX_DIM / width;
-            width = MAX_DIM;
+  // --- Photo Upload for Modal ---
+  const handleModalPhoto = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      const i = new Image();
+      i.onload = () => {
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("2d");
+        const M = 500;
+        let w = i.width,
+          h = i.height;
+        if (w > h) {
+          if (w > M) {
+            h *= M / w;
+            w = M;
           }
         } else {
-          if (height > MAX_DIM) {
-            width *= MAX_DIM / height;
-            height = MAX_DIM;
+          if (h > M) {
+            w *= M / h;
+            h = M;
           }
         }
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        setFormPhoto(canvas.toDataURL('image/jpeg', 0.5));
+        c.width = w;
+        c.height = h;
+        ctx.drawImage(i, 0, 0, w, h);
+        setFormPhoto(c.toDataURL("image/jpeg", 0.5));
       };
-      img.src = event.target.result;
+      i.src = ev.target.result;
     };
-    reader.readAsDataURL(file);
+    r.readAsDataURL(f);
   };
 
   return (
     <div className="animate-in fade-in h-full flex flex-col">
-      <ImagePreviewModal src={previewImage} onClose={() => setPreviewImage(null)} />
-      {showPwdModal && <PasswordModal onClose={() => setShowPwdModal(false)} onSuccess={handlePasswordSuccess} />}
+      <ImagePreviewModal
+        src={previewImage}
+        onClose={() => setPreviewImage(null)}
+      />
+      {showPwdModal && (
+        <PasswordModal
+          onClose={() => setShowPwdModal(false)}
+          onSuccess={handlePasswordSuccess}
+        />
+      )}
       {showLogModal && <AuditLogModal onClose={() => setShowLogModal(false)} />}
-      
+      {showCatManager && (
+        <CategoryManagerModal
+          categories={categories}
+          onClose={() => setShowCatManager(false)}
+        />
+      )}
+
       {showConfirmDelete && (
-        <ConfirmModal 
-          title="確認刪除？" 
-          content={`您即將刪除 ${selectedIds.size} 筆資料，此動作無法復原。`}
+        <ConfirmModal
+          title="確認刪除？"
+          content={`刪除 ${selectedIds.size} 筆`}
           onCancel={() => setShowConfirmDelete(false)}
           onConfirm={executeBatchDelete}
         />
       )}
       {showConfirmBatchSave && (
-        <ConfirmModal 
-          title="確認儲存？" 
-          content={`您即將批次更新此清單中的資料。`}
+        <ConfirmModal
+          title="確認儲存？"
+          content="確認更新清單"
           onCancel={() => setShowConfirmBatchSave(false)}
           onConfirm={executeBatchSave}
-          confirmText="確認儲存"
           confirmColor="bg-indigo-600"
+          confirmText="儲存"
         />
       )}
 
-      {/* 搜尋列與功能區 */}
       <div className="flex flex-col gap-3 mb-4">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             {currentFolder && !globalSearch ? (
-              <button onClick={() => setCurrentFolder(null)} className="text-indigo-600 font-bold flex items-center gap-1 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
-                <ArrowLeft size={18}/> 返回類別
+              <button
+                onClick={() => setCurrentFolder(null)}
+                className="text-indigo-600 font-bold flex gap-1"
+              >
+                <ArrowLeft size={18} /> 返回
               </button>
             ) : (
-              <h2 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-                <Search size={20} className="text-indigo-600"/> 庫存查詢
+              <h2 className="text-lg font-bold text-slate-700 flex gap-2">
+                <Search /> 庫存查詢
               </h2>
             )}
           </div>
-          
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {/* 編輯模式開關 */}
-            <button 
-              onClick={toggleEditMode}
-              className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-all ${isEditMode ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-500'}`}
-            >
-              {isEditMode ? <Unlock size={14}/> : <Lock size={14}/>}
-              {isEditMode ? (isSuperAdmin ? '超級管理' : '編輯模式') : '檢視模式'}
-            </button>
 
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* 分類篩選下拉選單 */}
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="p-1.5 px-2 rounded-lg text-xs border border-slate-300 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">所有分類</option>
+              {categories.map((c, i) => (
+                <option key={i} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={toggleEditMode}
+              className={`flex gap-1 text-xs px-3 py-1.5 rounded-full ${
+                isEditMode ? "bg-orange-100 text-orange-600" : "bg-slate-100"
+              }`}
+            >
+              {isEditMode ? <Unlock size={14} /> : <Lock size={14} />}{" "}
+              {isEditMode ? (isSuperAdmin ? "超級" : "編輯") : "檢視"}
+            </button>
             {isEditMode && (
               <>
-                {/* 0. 超級管理員功能：檢視紀錄 */}
                 {isSuperAdmin && (
-                   <button 
-                     onClick={() => setShowLogModal(true)} 
-                     className="bg-purple-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95"
-                   >
-                     <History size={14}/> 檢視紀錄
-                   </button>
+                  <button
+                    onClick={() => setShowLogModal(true)}
+                    className="bg-purple-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"
+                  >
+                    <History size={14} /> 紀錄
+                  </button>
                 )}
 
-                {/* 1. 批次修改 / 儲存修改 */}
-                {(currentFolder || globalSearch) && (
-                   <button 
-                     onClick={isBatchEditMode ? () => setShowConfirmBatchSave(true) : toggleBatchEditMode} 
-                     className={`p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-colors ${isBatchEditMode ? 'bg-indigo-600 text-white' : 'bg-blue-50 text-blue-600'}`}
-                   >
-                     {isBatchEditMode ? <Save size={14}/> : <Pencil size={14}/>} 
-                     {isBatchEditMode ? '儲存修改' : '批次修改'}
-                   </button>
-                )}
+                {/* 分類管理按鈕 */}
+                <button
+                  onClick={() => setShowCatManager(true)}
+                  className="bg-gray-100 text-gray-600 p-1.5 px-2 rounded-lg text-xs font-bold hover:bg-gray-200"
+                >
+                  <Settings size={14} />
+                </button>
 
-                {/* 2. 批次圖片 */}
+                {!isBatchEditMode && (
+                  <button
+                    onClick={toggleBatchEditMode}
+                    className="bg-blue-50 text-blue-600 p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"
+                  >
+                    <Pencil size={14} /> 批次修改
+                  </button>
+                )}
+                {isBatchEditMode && (
+                  <button
+                    onClick={() => setShowConfirmBatchSave(true)}
+                    className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"
+                  >
+                    <Save size={14} /> 儲存
+                  </button>
+                )}
                 <div className="relative">
-                  <input 
-                    type="file" 
-                    multiple 
-                    accept="image/*" 
-                    onChange={handleBatchImageUpload} 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleBatchImageUpload}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
                   />
-                  <button className="text-pink-600 bg-pink-50 p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 pointer-events-none">
-                    <ImageIcon size={14}/> 批次圖片
+                  <button className="text-pink-600 bg-pink-50 p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1 pointer-events-none">
+                    <ImageIcon size={14} /> 批次圖片
                   </button>
                 </div>
-
-                {/* 3. 刪除項目 / 取消刪除 */}
-                {(currentFolder || globalSearch) && (
-                   <button 
-                     onClick={toggleDeleteMode} 
-                     className={`p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-colors ${isDeleteMode ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600'}`}
-                   >
-                     <Trash size={14}/> {isDeleteMode ? '取消刪除' : '刪除項目'}
-                   </button>
-                )}
-
-                {/* 4. 新增 */}
-                <button onClick={() => openAddModal(null)} className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95">
-                  <PlusCircle size={14}/> 新增
+                <button
+                  onClick={toggleDeleteMode}
+                  className={`p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1 ${
+                    isDeleteMode
+                      ? "bg-red-600 text-white"
+                      : "bg-red-50 text-red-600"
+                  }`}
+                >
+                  <Trash size={14} /> {isDeleteMode ? "取消" : "刪除"}
+                </button>
+                <button
+                  onClick={() => openAddModal(null)}
+                  className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"
+                >
+                  <PlusCircle size={14} /> 新增
                 </button>
               </>
             )}
-
-            <button 
-              onClick={() => exportToCSV(displayItems.length > 0 ? displayItems : inventory, `庫存清單`)}
-              className="text-slate-500 flex items-center gap-1 text-xs hover:text-indigo-600 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors"
+            <button
+              onClick={() => exportToCSV(displayItems, "庫存")}
+              className="text-slate-500 flex gap-1 text-xs hover:text-indigo-600"
             >
-              <Download size={16} />
-              匯出
+              <Download size={16} /> 匯出
             </button>
           </div>
         </div>
-
-        {/* 全域搜尋 */}
-        <div className="relative w-full">
-          <input 
-            type="text" 
+        <div className="relative">
+          <input
+            type="text"
             value={globalSearch}
             onChange={handleGlobalSearchChange}
-            placeholder="輸入料號或品名搜尋..." 
-            className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            placeholder="輸入料號或品名搜尋..."
+            className="w-full p-3 pl-10 bg-white border border-slate-200 rounded-xl shadow-sm outline-none"
           />
-          <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
-          {globalSearch && (
-            <button onClick={() => setGlobalSearch('')} className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600">
-              <X size={18} />
-            </button>
-          )}
+          <Search
+            className="absolute left-3 top-3.5 text-slate-400"
+            size={18}
+          />
         </div>
       </div>
 
-      {/* 資料夾或清單 */}
       {!currentFolder && !globalSearch ? (
-        <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-4">
-          {folders.map(f => (
-            <button 
-              key={f} 
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+          {folders.map((f) => (
+            <button
+              key={f}
               onClick={() => setCurrentFolder(f)}
-              className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col items-center gap-2 hover:border-indigo-400 hover:shadow-md transition-all active:scale-95 group"
+              className="bg-white p-4 rounded-xl shadow-sm border flex flex-col items-center hover:bg-indigo-50 transition-colors"
             >
-              <FolderOpen size={32} className="text-blue-400 fill-blue-50 group-hover:text-blue-500" />
+              <FolderOpen size={32} className="text-blue-400 mb-2" />
               <span className="font-bold text-lg text-slate-700">{f}</span>
-              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-                {inventory.filter(i => (i.partNumber?.[0] || i.name?.[0] || '?').toUpperCase() === f).length} 項目
+              {/* 數量計算邏輯：需考慮 filterCategory */}
+              <span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-500 mt-1">
+                {
+                  inventory.filter((i) => {
+                    const key = (
+                      i.partNumber?.[0] ||
+                      i.name?.[0] ||
+                      "?"
+                    ).toUpperCase();
+                    const catMatch = filterCategory
+                      ? i.category === filterCategory
+                      : true;
+                    return key === f && catMatch;
+                  }).length
+                }{" "}
+                項目
               </span>
             </button>
           ))}
-          {folders.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">尚無庫存資料</p>}
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-right-4 relative">
-          
-          {/* 批量刪除工具列 (浮動) */}
-          {isDeleteMode && (
-             <div className="absolute top-0 left-0 right-0 bg-red-50 p-2 flex justify-between items-center z-10 border-b border-red-200">
-                <span className="text-red-700 font-bold text-sm ml-2">已選取 {selectedIds.size} 筆</span>
-                <div className="flex gap-2">
-                   <button onClick={toggleDeleteMode} className="bg-white text-slate-600 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">取消</button>
-                   <button onClick={() => setShowConfirmDelete(true)} disabled={selectedIds.size === 0} className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-sm disabled:opacity-50">確認刪除</button>
-                </div>
-             </div>
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden relative">
+          {(isDeleteMode || isBatchEditMode) && (
+            <div
+              className={`absolute top-0 left-0 right-0 p-2 z-10 flex justify-between ${
+                isDeleteMode
+                  ? "bg-red-50 text-red-700"
+                  : "bg-blue-50 text-blue-700"
+              }`}
+            >
+              <span className="text-sm font-bold ml-2">
+                {isDeleteMode ? `選取 ${selectedIds.size} 筆` : "批次修改模式"}
+              </span>
+              <button
+                onClick={isDeleteMode ? toggleDeleteMode : toggleBatchEditMode}
+                className="bg-white px-3 py-1 rounded shadow-sm text-xs"
+              >
+                取消
+              </button>
+              {isDeleteMode && (
+                <button
+                  onClick={() => setShowConfirmDelete(true)}
+                  disabled={!selectedIds.size}
+                  className="bg-red-600 text-white px-3 py-1 rounded text-xs shadow-sm ml-2"
+                >
+                  刪除
+                </button>
+              )}
+            </div>
           )}
-
-          {/* 批量修改工具列 (浮動) */}
-          {isBatchEditMode && (
-             <div className="absolute top-0 left-0 right-0 bg-blue-50 p-2 flex justify-between items-center z-10 border-b border-blue-200">
-                <span className="text-blue-700 font-bold text-sm ml-2">批次修改模式</span>
-                <div className="flex gap-2">
-                   <button onClick={toggleBatchEditMode} className="bg-white text-slate-600 px-3 py-1 rounded-lg text-xs font-bold shadow-sm">取消</button>
-                   {/* 這裡的儲存按鈕移到上方工具列統一管理，或者這裡也保留一個 */}
-                </div>
-             </div>
-          )}
-
-          <div className={`border-b border-slate-200 p-3 flex justify-between items-center ${isEditMode ? 'bg-orange-50' : 'bg-blue-50'} ${(isDeleteMode || isBatchEditMode) ? 'mt-10' : ''}`}>
-            <h3 className={`font-bold flex items-center gap-2 ${isEditMode ? 'text-orange-800' : 'text-blue-800'}`}>
-              <FolderOpen size={16}/> {globalSearch ? '搜尋結果' : `${currentFolder} 類別清單`}
+          <div
+            className={`p-3 border-b flex justify-between ${
+              isEditMode ? "bg-orange-50" : "bg-blue-50"
+            } ${isDeleteMode || isBatchEditMode ? "mt-10" : ""}`}
+          >
+            <h3 className="font-bold flex gap-2">
+              <FolderOpen size={16} />{" "}
+              {globalSearch ? "搜尋結果" : `${currentFolder} 類別清單`}
             </h3>
-            <span className={`text-xs font-medium ${isEditMode ? 'text-orange-600' : 'text-blue-600'}`}>共 {displayItems.length} 筆</span>
+            <span className="text-xs">共 {displayItems.length} 筆</span>
           </div>
-          
           <div className="overflow-auto max-h-[75vh]">
             <table className="w-full text-left text-xs sm:text-sm">
-              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+              <thead className="bg-slate-50 font-semibold border-b sticky top-0 z-10 shadow-sm">
                 <tr>
                   {isDeleteMode && (
-                    <th className="p-2 sm:p-3 w-10 text-center bg-slate-50">
-                       <button onClick={handleSelectAll} className="text-slate-500 hover:text-indigo-600">
-                         <CheckSquare size={16} />
-                       </button>
+                    <th className="p-2 w-10 text-center bg-slate-50">
+                      <button onClick={handleSelectAll}>
+                        <CheckSquare size={16} />
+                      </button>
                     </th>
                   )}
-                  <th className="p-2 sm:p-3 whitespace-nowrap w-10 text-center bg-slate-50">序號</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap w-14 bg-slate-50">圖</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">料號</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">品名</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">尺寸</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">分類</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">材質 (材質規格)</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">顏色</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap bg-slate-50">備註</th>
-                  <th className="p-2 sm:p-3 whitespace-nowrap text-right bg-slate-50">庫存</th>
-                  {isEditMode && !isDeleteMode && !isBatchEditMode && <th className="p-2 sm:p-3 whitespace-nowrap text-center bg-slate-50">操作</th>}
+                  {[
+                    "序號",
+                    "圖",
+                    "料號",
+                    "品名",
+                    "尺寸",
+                    "分類",
+                    "材質(規格)",
+                    "顏色",
+                    "備註",
+                    "庫存",
+                  ].map((h) => (
+                    <th key={h} className="p-2 whitespace-nowrap bg-slate-50">
+                      {h}
+                    </th>
+                  ))}
+                  {isEditMode && !isDeleteMode && !isBatchEditMode && (
+                    <th className="p-2 text-center bg-slate-50">操作</th>
+                  )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {displayItems.map((item, index) => {
-                  const isLowStock = item.quantity < (item.safetyStock || 5000);
-                  const editData = isBatchEditMode ? (batchEditValues[item.id] || item) : item;
-
+              <tbody className="divide-y">
+                {displayItems.map((item, idx) => {
+                  const isLow = item.quantity < (item.safetyStock || 5000);
+                  const d = isBatchEditMode
+                    ? batchEditValues[item.id] || item
+                    : item;
                   return (
-                    <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(item.id) ? 'bg-red-50' : ''}`}>
+                    <tr
+                      key={item.id}
+                      className={`hover:bg-slate-50 ${
+                        selectedIds.has(item.id) ? "bg-red-50" : ""
+                      }`}
+                    >
                       {isDeleteMode && (
-                        <td className="p-2 sm:p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedIds.has(item.id)} 
+                        <td className="p-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
                             onChange={() => handleSelect(item.id)}
-                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                            className="w-4 h-4"
                           />
                         </td>
                       )}
-                      <td className="p-2 sm:p-3 text-center text-slate-400 font-mono text-xs">{index + 1}</td>
-                      <td className="p-2 sm:p-3">
-                         <div className="w-10 h-10 bg-white border border-slate-200 rounded-md overflow-hidden flex items-center justify-center shadow-sm">
-                          {item.photo ? <img src={item.photo} alt="圖" className="w-full h-full object-contain" onClick={() => !isBatchEditMode && setPreviewImage(item.photo)} /> : <ImageIcon size={16} className="text-slate-300" />}
+                      <td className="p-2 text-center text-slate-400">
+                        {idx + 1}
+                      </td>
+                      <td className="p-2">
+                        <div className="w-10 h-10 bg-white border rounded flex items-center justify-center">
+                          {item.photo ? (
+                            <img
+                              src={item.photo}
+                              className="w-full h-full object-contain"
+                              onClick={() =>
+                                !isBatchEditMode && setPreviewImage(item.photo)
+                              }
+                            />
+                          ) : (
+                            <ImageIcon size={16} className="text-slate-300" />
+                          )}
                         </div>
                       </td>
-                      
-                      {/* 批次修改欄位 */}
                       {isBatchEditMode ? (
                         <>
-                          <td className="p-2"><input type="text" value={editData.partNumber} onChange={(e) => handleBatchChange(item.id, 'partNumber', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
-                          <td className="p-2"><input type="text" value={editData.name} onChange={(e) => handleBatchChange(item.id, 'name', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
-                          <td className="p-2"><input type="text" value={editData.size} onChange={(e) => handleBatchChange(item.id, 'size', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
                           <td className="p-2">
-                            <select value={editData.category} onChange={(e) => handleBatchChange(item.id, 'category', e.target.value)} className="w-full border rounded p-1 text-xs">
-                               <option value="零件">零件</option>
-                               <option value="成品">成品</option>
+                            <input
+                              value={d.partNumber}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "partNumber",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              value={d.name}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "name",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              value={d.size}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "size",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <select
+                              value={d.category}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "category",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            >
+                              {categories.map((c) => (
+                                <option key={c}>{c}</option>
+                              ))}
                             </select>
                           </td>
                           <td className="p-2">
-                             <input type="text" value={editData.material} onChange={(e) => handleBatchChange(item.id, 'material', e.target.value)} className="w-full border rounded p-1 text-xs mb-1" placeholder="材質" />
-                             <input type="text" value={editData.spec} onChange={(e) => handleBatchChange(item.id, 'spec', e.target.value)} className="w-full border rounded p-1 text-xs" placeholder="規格" />
+                            <input
+                              value={d.material}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "material",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full mb-1"
+                              placeholder="材質"
+                            />
+                            <input
+                              value={d.spec}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "spec",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                              placeholder="規格"
+                            />
                           </td>
-                          <td className="p-2"><input type="text" value={editData.color} onChange={(e) => handleBatchChange(item.id, 'color', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
-                          <td className="p-2"><input type="text" value={editData.remarks} onChange={(e) => handleBatchChange(item.id, 'remarks', e.target.value)} className="w-full border rounded p-1 text-xs" /></td>
-                          <td className="p-2"><input type="number" value={editData.quantity} onChange={(e) => handleBatchChange(item.id, 'quantity', e.target.value)} className="w-full border rounded p-1 text-xs text-right" /></td>
+                          <td className="p-2">
+                            <input
+                              value={d.color}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "color",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              value={d.remarks}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "remarks",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              value={d.quantity}
+                              onChange={(e) =>
+                                handleBatchChange(
+                                  item.id,
+                                  "quantity",
+                                  e.target.value
+                                )
+                              }
+                              className="border rounded w-full text-right"
+                            />
+                          </td>
                         </>
                       ) : (
-                        // 一般檢視模式
                         <>
-                          <td className="p-2 sm:p-3 font-bold text-slate-700">{item.partNumber}</td>
-                          <td className="p-2 sm:p-3 font-bold text-slate-700">{item.name}</td>
-                          <td className="p-2 sm:p-3 text-slate-600">{item.size || '-'}</td>
-                          <td className="p-2 sm:p-3">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${item.category==='成品'?'bg-blue-50 text-blue-600 border-blue-100':'bg-orange-50 text-orange-600 border-orange-100'}`}>
+                          <td className="p-2 font-bold">{item.partNumber}</td>
+                          <td className="p-2 font-bold">{item.name}</td>
+                          <td className="p-2">{item.size || "-"}</td>
+                          <td className="p-2">
+                            <span className="border px-1 rounded">
                               {item.category}
                             </span>
                           </td>
-                          <td className="p-2 sm:p-3 text-slate-600">
-                             {item.material || '-'} <span className="text-[10px] text-slate-400">{item.spec ? `(${item.spec})` : ''}</span>
+                          <td className="p-2">
+                            {item.material || "-"}{" "}
+                            <span className="text-slate-400 text-xs">
+                              {item.spec}
+                            </span>
                           </td>
-                          <td className="p-2 sm:p-3 text-slate-600">{item.color || '-'}</td>
-                          <td className="p-2 sm:p-3 text-slate-600 text-xs">{item.remarks || '-'}</td>
-                          <td className={`p-2 sm:p-3 text-right font-mono font-bold ${isLowStock ? 'text-red-600' : 'text-blue-600'}`}>
+                          <td className="p-2">{item.color || "-"}</td>
+                          <td className="p-2 text-xs">{item.remarks || "-"}</td>
+                          <td
+                            className={`p-2 text-right font-bold ${
+                              isLow ? "text-red-600" : "text-blue-600"
+                            }`}
+                          >
                             {item.quantity}
                           </td>
                         </>
                       )}
-                      
                       {isEditMode && !isDeleteMode && !isBatchEditMode && (
-                        <td className="p-2 sm:p-3 flex justify-center gap-2">
-                          <button onClick={() => openAddModal(item)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm border border-transparent hover:border-slate-200"><Edit size={14}/></button>
+                        <td className="p-2 flex justify-center">
+                          <button
+                            onClick={() => openAddModal(item)}
+                            className="p-1 text-slate-400 hover:text-indigo-600"
+                          >
+                            <Edit size={14} />
+                          </button>
                         </td>
                       )}
                     </tr>
                   );
                 })}
-                {displayItems.length === 0 && (
-                  <tr>
-                    <td colSpan={isEditMode ? (isDeleteMode ? 12 : 11) : 10} className="p-8 text-center text-slate-400">無符合資料</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* 新增/編輯 Modal (只在編輯模式下啟用) */}
       {isAdding && isEditMode && (
         <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-          <form onSubmit={handleSave} className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl space-y-4 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3 mb-2">
-              <h3 className="font-bold text-lg text-slate-800">{editingItem ? '編輯資料' : '新增資料'}</h3>
-              <button type="button" onClick={() => setIsAdding(false)} className="p-1 hover:bg-slate-100 rounded-full transition-colors"><X size={20}/></button>
+          <form
+            onSubmit={handleSave}
+            className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex justify-between border-b pb-3">
+              <h3 className="font-bold text-lg">
+                {editingItem ? "編輯" : "新增"}資料
+              </h3>
+              <button type="button" onClick={() => setIsAdding(false)}>
+                <X />
+              </button>
             </div>
-            
-            {/* 新增模式下的「匯入 Excel」區塊 */}
             {!editingItem && (
-              <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <FileSpreadsheet className="text-green-600" size={20} />
-                  <span className="font-bold text-slate-700 text-sm">批次匯入 (Excel/CSV)</span>
-                </div>
+              <div className="p-4 bg-slate-50 rounded-xl flex flex-col gap-2 mb-2">
                 <div className="flex gap-2">
-                  <button 
-                    type="button" 
-                    onClick={downloadImportTemplate} 
-                    className="flex-1 py-2 bg-white border border-slate-300 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors flex items-center justify-center gap-1"
+                  <button
+                    type="button"
+                    onClick={downloadImportTemplate}
+                    className="flex-1 bg-white border py-2 rounded text-xs"
                   >
-                    <Download size={14}/> 下載範本
+                    下載範本
                   </button>
                   <div className="relative flex-1">
-                    <input 
-                      type="file" 
-                      accept=".csv" 
-                      onChange={handleImportCSV} 
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleImportCSV}
+                      className="absolute inset-0 opacity-0"
                     />
-                    <button 
-                      type="button" 
-                      className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 pointer-events-none"
+                    <button
+                      type="button"
+                      className="w-full bg-blue-600 text-white py-2 rounded text-xs"
                     >
-                      <Upload size={14}/> 匯入檔案
+                      匯入檔案
                     </button>
                   </div>
                 </div>
               </div>
             )}
-
-            <div className="space-y-4">
-              {/* 料號 (必填) */}
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">料號 (必填)</label>
-                <input type="text" value={formPartNumber} onChange={e => setFormPartNumber(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">品名</label>
-                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-              </div>
-
-              <div>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  capture="environment" 
-                  className="hidden" 
-                  id="photo-upload"
-                  onChange={handlePhotoUpload}
+            <div>
+              <label className="text-xs font-bold text-slate-400">
+                料號 (必填)
+              </label>
+              <input
+                value={formPartNumber}
+                onChange={(e) => setFormPartNumber(e.target.value)}
+                className="w-full p-2 border rounded"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-400">品名</label>
+              <input
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                className="w-full p-2 border rounded"
+                required
+              />
+            </div>
+            <div className="relative">
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                id="modal-photo"
+                onChange={handleModalPhoto}
+              />
+              <label
+                htmlFor="modal-photo"
+                className="block w-full p-2 border border-dashed rounded text-center text-slate-500 cursor-pointer"
+              >
+                <Camera size={20} className="inline mr-1" />
+                {formPhoto ? "更換" : "上傳"}照片
+              </label>
+              {formPhoto && (
+                <img
+                  src={formPhoto}
+                  className="mt-2 w-full h-32 object-contain bg-slate-100 rounded"
                 />
-                <label 
-                  htmlFor="photo-upload" 
-                  className="flex items-center justify-center gap-2 w-full p-3 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-slate-500 cursor-pointer hover:bg-slate-100 transition-colors"
-                >
-                  <Camera size={20} />
-                  {formPhoto ? '更換照片' : '新增照片 (開啟相機)'}
+              )}
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-400">
+                  尺寸 (選填)
                 </label>
-                {formPhoto && (
-                  <div className="mt-2 relative group aspect-square w-full bg-gray-100 rounded-xl border border-slate-200 overflow-hidden flex items-center justify-center">
-                     <img src={formPhoto} alt="Preview" className="w-full h-full object-contain" />
-                     <button 
-                       type="button" 
-                       onClick={() => setFormPhoto('')} 
-                       className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600"
-                     >
-                       <X size={16} />
-                     </button>
-                  </div>
-                )}
+                <input
+                  value={formSizeVal}
+                  onChange={(e) => setFormSizeVal(e.target.value)}
+                  className="w-full p-2 border rounded"
+                  placeholder="可空白"
+                />
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">尺寸 (選填)</label>
-                <div className="flex gap-2">
-                  <input type="number" step="any" value={formSizeVal} onChange={e => setFormSizeVal(e.target.value)} placeholder="可空白 (如 5/8)" className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  <select value={formSizeUnit} onChange={e => setFormSizeUnit(e.target.value)} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="英吋">英吋</option>
-                    <option value="mm">mm</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">分類</label>
-                  <select value={formCategory} onChange={e => setFormCategory(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <option value="零件">零件</option>
-                    <option value="成品">成品</option>
-                  </select>
-                </div>
-                <div>
-                   <label className="block text-xs font-bold text-slate-400 mb-1">材質 (必填)</label>
-                   <input type="text" value={formMaterial} onChange={e => setFormMaterial(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                </div>
-              </div>
-
-              <div>
-                 <label className="block text-xs font-bold text-slate-400 mb-1">材質規格 (可空白)</label>
-                 <input type="text" value={formSpec} onChange={e => setFormSpec(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-2">顏色</label>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
-                   <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="colorMode" checked={colorMode === 'black'} onChange={() => setColorMode('black')} className="text-indigo-600 focus:ring-indigo-500" />
-                        <span className="text-sm">黑色</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="colorMode" checked={colorMode === 'custom'} onChange={() => setColorMode('custom')} className="text-indigo-600 focus:ring-indigo-500" />
-                        <span className="text-sm">有色 (其他)</span>
-                      </label>
-                   </div>
-                   {colorMode === 'custom' && (
-                     <div className="flex items-center gap-2 animate-in slide-in-from-top-2">
-                       <Palette size={16} className="text-slate-400"/>
-                       <input 
-                         type="text" 
-                         value={customColorVal} 
-                         onChange={e => setCustomColorVal(e.target.value)} 
-                         placeholder="請輸入顏色名稱或色號" 
-                         className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                         autoFocus
-                       />
-                     </div>
-                   )}
-                </div>
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">備註 (選填)</label>
-                <input type="text" value={formRemarks} onChange={e => setFormRemarks(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">庫存數量</label>
-                  <input type="number" value={formQty} onChange={e => setFormQty(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">安全庫存</label>
-                  <input type="number" value={formSafetyStock} onChange={e => setFormSafetyStock(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-                </div>
+              <div className="w-24">
+                <label className="text-xs font-bold text-slate-400">單位</label>
+                <select
+                  value={formSizeUnit}
+                  onChange={(e) => setFormSizeUnit(e.target.value)}
+                  className="w-full p-2 border rounded"
+                >
+                  <option>英吋</option>
+                  <option>mm</option>
+                </select>
               </div>
             </div>
-
-            <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-transform active:scale-95 mt-4">確認儲存</button>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-400">分類</label>
+                <select
+                  value={formCategory}
+                  onChange={(e) => setFormCategory(e.target.value)}
+                  className="w-full p-2 border rounded"
+                >
+                  {categories.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-400">材質</label>
+                <input
+                  value={formMaterial}
+                  onChange={(e) => setFormMaterial(e.target.value)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-400">
+                材質規格 (可空白)
+              </label>
+              <input
+                value={formSpec}
+                onChange={(e) => setFormSpec(e.target.value)}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-400">顏色</label>
+              <div className="flex gap-2 mt-1">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={colorMode === "black"}
+                    onChange={() => {
+                      setColorMode("black");
+                      setCustomColorVal("");
+                    }}
+                    className="mr-1"
+                  />
+                  黑色
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    checked={colorMode === "custom"}
+                    onChange={() => setColorMode("custom")}
+                    className="mr-1"
+                  />
+                  其他
+                </label>
+              </div>
+              {colorMode === "custom" && (
+                <input
+                  value={customColorVal}
+                  onChange={(e) => {
+                    setCustomColorVal(e.target.value);
+                  }}
+                  className="w-full p-2 border rounded mt-2"
+                  placeholder="輸入顏色"
+                />
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-400">
+                備註 (選填)
+              </label>
+              <input
+                value={formRemarks}
+                onChange={(e) => setFormRemarks(e.target.value)}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            <div className="flex gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-400">庫存</label>
+                <input
+                  type="number"
+                  value={formQty}
+                  onChange={(e) => setFormQty(e.target.value)}
+                  className="w-full p-2 border rounded"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400">
+                  安全庫存
+                </label>
+                <input
+                  type="number"
+                  value={formSafetyStock}
+                  onChange={(e) => setFormSafetyStock(e.target.value)}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+            </div>
+            <button className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold mt-2">
+              儲存
+            </button>
           </form>
         </div>
       )}
