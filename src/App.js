@@ -641,33 +641,53 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // A. 監聽庫存
+    // --- A. 監聽庫存資料 (使用新的排序邏輯) ---
     const inventoryRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
-    const unsubInv = onSnapshot(inventoryRef, (snapshot) => {
+    const unsubInv = onSnapshot(inventoryRef, 
+      (snapshot) => {
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setInventory(items.sort(sortInventoryItems));
+        const sortedItems = items.sort(sortInventoryItems); // 使用自定義排序
+        setInventory(sortedItems);
         setLoading(false);
-    }, (err) => {
-        console.error(err);
-        if (err.code === 'permission-denied') showMsg('error', '權限不足：請確認 Firebase 規則');
+      },
+      (err) => {
+        console.error("Firestore Error:", err);
+        if (err.code === 'permission-denied') {
+             showMsg('error', '權限不足：請確認 Firebase 規則');
+        }
         setLoading(false);
-    });
+      }
+    );
 
-    // B. 線上狀態
+    // --- B. 線上狀態 Heartbeat ---
     const presenceRef = doc(db, 'artifacts', appId, 'public', 'data', 'presence', user.uid);
-    const updatePresence = () => setDoc(presenceRef, { email: user.email, lastSeen: new Date().toISOString() }, { merge: true });
+    const updatePresence = () => {
+      setDoc(presenceRef, {
+        email: user.email,
+        lastSeen: new Date().toISOString()
+      }, { merge: true }).catch(err => console.error("Presence Error", err));
+    };
     updatePresence();
     const interval = setInterval(updatePresence, 60000); 
 
-    // C. 監聽其他使用者
+    // --- C. 監聽線上使用者 ---
     const presenceColl = collection(db, 'artifacts', appId, 'public', 'data', 'presence');
     const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
       const now = new Date();
-      setOnlineUsers(snapshot.docs.map(d => ({id: d.id, ...d.data()})).filter(u => (now - new Date(u.lastSeen)) < 120000 && u.id !== user.uid));
+      const active = snapshot.docs
+        .map(d => ({id: d.id, ...d.data()}))
+        .filter(u => {
+          const lastSeen = new Date(u.lastSeen);
+          // 判定 2 分鐘內為線上
+          return (now - lastSeen) < 120000 && u.id !== user.uid;
+        });
+      setOnlineUsers(active);
     });
 
     return () => {
-      unsubInv(); clearInterval(interval); unsubPresence();
+      unsubInv();
+      clearInterval(interval);
+      unsubPresence();
       deleteDoc(presenceRef).catch(()=>{}); 
     };
   }, [user]);
@@ -713,6 +733,7 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">聚鴻塑膠庫存管理系統</h1>
           </div>
           <div className="flex items-center gap-3">
+             {/* 顯示其他線上使用者 (圓圈頭像) */}
              {onlineUsers.length > 0 && (
                <div className="flex -space-x-2 mr-2">
                  {onlineUsers.map(u => (
@@ -722,6 +743,8 @@ export default function App() {
                  ))}
                </div>
              )}
+
+             {/* 顯示目前登入者 */}
              <div className="flex items-center gap-1 text-xs bg-indigo-700 py-1 px-2 rounded-lg border border-indigo-500 shadow-sm">
                 <User size={12} />
                 <span className="max-w-[100px] truncate font-mono">{formatUserName(user.email)}</span>
@@ -1015,25 +1038,25 @@ function TransactionForm({ mode, inventory, onSave, currentUser }) {
 function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const [currentFolder, setCurrentFolder] = useState(null);
   const [globalSearch, setGlobalSearch] = useState('');
-  const [previewImage, setPreviewImage] = useState(null); 
-  const [isEditMode, setIsEditMode] = useState(false); 
-  const [showPwdModal, setShowPwdModal] = useState(false); 
-  const [showLogModal, setShowLogModal] = useState(false); 
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false); 
-  
-  // 批量操作
+  const [previewImage, setPreviewImage] = useState(null); // 大圖預覽狀態
+  const [isEditMode, setIsEditMode] = useState(false); // 編輯模式開關
+  const [showPwdModal, setShowPwdModal] = useState(false); // 密碼視窗開關
+  const [showLogModal, setShowLogModal] = useState(false); // 新增：顯示紀錄視窗
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false); // 新增：超級管理員狀態
+
+  // 批量操作模式
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [isBatchEditMode, setIsBatchEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [showConfirmBatchSave, setShowConfirmBatchSave] = useState(false);
-  const [batchEditValues, setBatchEditValues] = useState({}); 
+  const [batchEditValues, setBatchEditValues] = useState({}); // 暫存修改值
 
-  // 新增/編輯
+  // 編輯/新增相關狀態
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formName, setFormName] = useState('');
-  const [formPartNumber, setFormPartNumber] = useState(''); 
+  const [formPartNumber, setFormPartNumber] = useState(''); // 料號
   const [formSizeVal, setFormSizeVal] = useState('');
   const [formSizeUnit, setFormSizeUnit] = useState('英吋'); 
   const [formCategory, setFormCategory] = useState(''); 
@@ -1050,6 +1073,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   const folders = useMemo(() => {
     const map = {};
     inventory.forEach(item => {
+      // 優先使用料號首字，若無料號則用品名
       const key = (item.partNumber?.[0] || item.name?.[0] || '?').toUpperCase();
       if (!map[key]) map[key] = 0;
       map[key]++;
@@ -1077,6 +1101,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     let list = inventory;
 
     if (globalSearch.trim()) {
+      // 搜尋料號 或 品名
       list = list.filter(item => 
         item.partNumber?.toLowerCase().includes(globalSearch.toLowerCase()) || 
         item.name?.toLowerCase().includes(globalSearch.toLowerCase())
@@ -1103,13 +1128,13 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   // --- 密碼與模式切換邏輯 ---
   const toggleEditMode = () => {
     if (isEditMode) {
-      setIsEditMode(false); 
+      setIsEditMode(false); // 關閉不需要密碼
       setIsDeleteMode(false); 
       setIsBatchEditMode(false);
       setBatchEditValues({});
       setIsSuperAdmin(false);
     } else {
-      setShowPwdModal(true);
+      setShowPwdModal(true); // 開啟需要驗證
     }
   };
 
@@ -1118,21 +1143,30 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     setIsSuperAdmin(superAdmin);
   };
 
-  // --- 批量刪除/修改/匯入 (省略重複代碼，邏輯相同) ---
-  const toggleDeleteMode = () => { setIsDeleteMode(!isDeleteMode); setIsBatchEditMode(false); setSelectedIds(new Set()); };
-  const toggleBatchEditMode = () => {
-    if (isBatchEditMode) { setIsBatchEditMode(false); setBatchEditValues({}); } 
-    else {
-      const initialValues = {};
-      displayItems.forEach(item => { initialValues[item.id] = { ...item }; });
-      setBatchEditValues(initialValues);
-      setIsBatchEditMode(true);
-      setIsDeleteMode(false);
+  // --- 批量刪除邏輯 ---
+  const toggleDeleteMode = () => {
+    setIsDeleteMode(!isDeleteMode);
+    setIsBatchEditMode(false); // 互斥
+    setSelectedIds(new Set()); 
+  };
+
+  const handleSelect = (id) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === displayItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayItems.map(i => i.id)));
     }
   };
-  const handleBatchChange = (id, field, value) => { setBatchEditValues(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } })); };
-  const handleSelect = (id) => { const s = new Set(selectedIds); if(s.has(id)) s.delete(id); else s.add(id); setSelectedIds(s); };
-  const handleSelectAll = () => { setSelectedIds(selectedIds.size === displayItems.length ? new Set() : new Set(displayItems.map(i => i.id))); };
 
   const executeBatchDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -1153,6 +1187,34 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
       setIsDeleteMode(false);
       setShowConfirmDelete(false);
     } catch (err) { onSave('error', '失敗'); }
+  };
+
+  // --- 批量修改邏輯 ---
+  const toggleBatchEditMode = () => {
+    if (isBatchEditMode) {
+      // 取消修改
+      setIsBatchEditMode(false);
+      setBatchEditValues({});
+    } else {
+      // 進入修改模式
+      const initialValues = {};
+      displayItems.forEach(item => {
+        initialValues[item.id] = { ...item };
+      });
+      setBatchEditValues(initialValues);
+      setIsBatchEditMode(true);
+      setIsDeleteMode(false); // 互斥
+    }
+  };
+
+  const handleBatchChange = (id, field, value) => {
+    setBatchEditValues(prev => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        [field]: value
+      }
+    }));
   };
 
   const executeBatchSave = async () => {
@@ -1225,7 +1287,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
             const img = new Image();
             img.onload = async () => {
                const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-               const M = 500; let w=img.width, h=img.height;
+               const M = 500; let w=i.width, h=i.height;
                if(w>h){if(w>M){h*=M/w;w=M}}else{if(h>M){w*=M/h;h=M}}
                c.width=w; c.height=h; ctx.drawImage(img,0,0,w,h);
                const url = c.toDataURL('image/jpeg', 0.5);
@@ -1324,13 +1386,13 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button onClick={toggleEditMode} className={`flex gap-1 text-xs px-3 py-1.5 rounded-full ${isEditMode?'bg-orange-100 text-orange-600':'bg-slate-100'}`}>{isEditMode?<Unlock size={14}/>:<Lock size={14}/>} {isEditMode?(isSuperAdmin?'超級':'編輯'):'檢視'}</button>
             {isEditMode && <>
-               <button onClick={()=>openAddModal(null)} className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1 shadow-sm active:scale-95"><PlusCircle size={14}/> 新增</button>
                {isSuperAdmin && <button onClick={()=>setShowLogModal(true)} className="bg-purple-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"><History size={14}/> 紀錄</button>}
                
                {!isBatchEditMode && <button onClick={toggleBatchEditMode} className="bg-blue-50 text-blue-600 p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"><Pencil size={14}/> 批次修改</button>}
                {isBatchEditMode && <button onClick={()=>setShowConfirmBatchSave(true)} className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"><Save size={14}/> 儲存</button>}
                <div className="relative"><input type="file" multiple accept="image/*" onChange={handleBatchImageUpload} className="absolute inset-0 opacity-0 cursor-pointer"/><button className="text-pink-600 bg-pink-50 p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1 pointer-events-none"><ImageIcon size={14}/> 批次圖片</button></div>
                <button onClick={toggleDeleteMode} className={`p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1 ${isDeleteMode?'bg-red-600 text-white':'bg-red-50 text-red-600'}`}><Trash size={14}/> {isDeleteMode?'取消':'刪除'}</button>
+               <button onClick={()=>openAddModal(null)} className="bg-indigo-600 text-white p-1.5 px-3 rounded-lg text-xs font-bold flex gap-1"><PlusCircle size={14}/> 新增</button>
             </>}
             <button onClick={()=>exportToCSV(displayItems, '庫存')} className="text-slate-500 flex gap-1 text-xs hover:text-indigo-600"><Download size={16}/> 匯出</button>
           </div>
