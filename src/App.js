@@ -1317,7 +1317,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
   }, [currentFolder, inventory, globalSearch, sortConfig]);
 
   const handleSort = (key) => {
-    // 尺寸已移除點擊排序
+    // 尺寸不排序
     if (key === 'size') return;
     
     let direction = 'asc';
@@ -1510,7 +1510,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
             const img = new Image();
             img.onload = async () => {
                const c = document.createElement('canvas'); const ctx = c.getContext('2d');
-               const M = 500; let w=i.width, h=i.height;
+               const M = 500; let w=img.width, h=img.height;
                if(w>h){if(w>M){h*=M/w;w=M}}else{if(h>M){w*=M/h;h=M}}
                c.width=w; c.height=h; ctx.drawImage(img,0,0,w,h);
                const url = c.toDataURL('image/jpeg', 0.5);
