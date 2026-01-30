@@ -1770,6 +1770,10 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
           res = (a.material || "").localeCompare(b.material || "", "zh-Hant");
           if (res === 0)
             res = (a.spec || "").localeCompare(b.spec || "", "zh-Hant");
+        } else if (key === "lastUpdated") {
+          const timeA = new Date(a.lastUpdated || 0).getTime();
+          const timeB = new Date(b.lastUpdated || 0).getTime();
+          res = timeA - timeB;
         } else {
           const valA = (a[key] || "").toString();
           const valB = (b[key] || "").toString();
@@ -2625,9 +2629,7 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
                     庫存
                   </th>
                   {isEditMode && (
-                    <th className="p-2 whitespace-nowrap bg-slate-50 text-xs">
-                      更新時間
-                    </th>
+                    <SortHeader label="更新時間" sortKey="lastUpdated" />
                   )}
                   {isEditMode && !isDeleteMode && !isBatchEditMode && (
                     <th className="p-2 text-center bg-slate-50">操作</th>
