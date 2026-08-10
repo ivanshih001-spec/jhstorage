@@ -503,10 +503,22 @@ const getAuditActionStyle = (action) => (
   AUDIT_ACTION_STYLES[action] || 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200'
 );
 
+const AUDIT_ACTION_ORDER = ['入庫', '出庫', '新增', '修改', '批次修改', '匯入', '刪除'];
+
+function AuditActionBadge({ action }) {
+  return (
+    <span className={`inline-flex min-w-[52px] justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ${getAuditActionStyle(action)}`}>
+      {action || '其他'}
+    </span>
+  );
+}
+
 // --- 操作紀錄視窗 (Log Modal) ---
 function AuditLogModal({ onClose }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [keyword, setKeyword] = useState('');
+  const [actionFilter, setActionFilter] = useState('全部');
 
   useEffect(() => {
     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), orderBy('timestamp', 'desc'), limit(500));
@@ -517,42 +529,137 @@ function AuditLogModal({ onClose }) {
     return () => unsubscribe();
   }, []);
 
+  const actionCounts = useMemo(() => {
+    return logs.reduce((counts, log) => {
+      const action = log.action || '其他';
+      counts[action] = (counts[action] || 0) + 1;
+      return counts;
+    }, {});
+  }, [logs]);
+
+  const availableActions = useMemo(() => {
+    const knownActions = AUDIT_ACTION_ORDER.filter(action => actionCounts[action]);
+    const otherActions = Object.keys(actionCounts).filter(action => !AUDIT_ACTION_ORDER.includes(action));
+    return [...knownActions, ...otherActions];
+  }, [actionCounts]);
+
+  const filteredLogs = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    return logs.filter(log => {
+      const matchesAction = actionFilter === '全部' || log.action === actionFilter;
+      if (!matchesAction) return false;
+      if (!normalizedKeyword) return true;
+      return [log.user, log.action, log.product, log.details]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(normalizedKeyword));
+    });
+  }, [logs, keyword, actionFilter]);
+
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in-95">
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-indigo-50 rounded-t-2xl">
-           <h3 className="font-bold text-indigo-900 flex items-center gap-2"><History size={20}/> 系統操作紀錄</h3>
-           <button onClick={onClose} className="p-2 hover:bg-indigo-100 rounded-full text-indigo-600"><X size={20}/></button>
+    <div className="fixed inset-0 bg-slate-950/65 z-[100] flex items-center justify-center p-2 sm:p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[92vh] sm:h-[88vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+        <div className="px-4 py-4 sm:px-6 sm:py-5 border-b border-slate-200 flex justify-between items-start gap-4 bg-white">
+          <div className="min-w-0">
+            <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+              <span className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0"><History size={19}/></span>
+              系統操作紀錄
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 ml-11">
+              顯示 {filteredLogs.length} 筆，共 {logs.length} 筆紀錄
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="關閉操作紀錄" className="p-2.5 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors shrink-0"><X size={20}/></button>
         </div>
-        <div className="flex-1 overflow-auto p-4 bg-slate-50">
-          {loading ? <div className="flex justify-center p-10"><Loader className="animate-spin text-indigo-400"/></div> : (
-            <table className="w-full text-left text-xs bg-white rounded-lg shadow-sm border border-slate-200">
-              <thead className="bg-slate-100 text-slate-500 font-semibold sticky top-0">
-                <tr>
-                   <th className="p-3">時間</th>
-                   <th className="p-3">帳號</th>
-                   <th className="p-3">動作</th>
-                   <th className="p-3">產品詳情 (料號 | 品名 | 規格 | 顏色)</th>
-                   <th className="p-3">變更內容</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="p-3 whitespace-nowrap text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
-                    <td className="p-3 font-mono text-blue-600">{formatUserName(log.user)}</td>
-                    <td className="p-3">
-                      <span className={`inline-flex min-w-[44px] justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${getAuditActionStyle(log.action)}`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="p-3 font-bold text-slate-700">{log.product}</td>
-                    <td className="p-3 text-slate-500 break-all max-w-[250px]">{log.details}</td>
+
+        <div className="px-3 py-3 sm:px-6 sm:py-4 border-b border-slate-200 bg-slate-50 space-y-3">
+          <div className="relative">
+            <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input
+              value={keyword}
+              onChange={event => setKeyword(event.target.value)}
+              placeholder="搜尋帳號、產品或變更內容"
+              className="w-full h-11 rounded-xl border border-slate-200 bg-white pl-10 pr-10 text-sm text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+            {keyword && (
+              <button onClick={() => setKeyword('')} aria-label="清除搜尋" className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-slate-600"><X size={16}/></button>
+            )}
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <button
+              onClick={() => setActionFilter('全部')}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-all ${actionFilter === '全部' ? 'bg-slate-800 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-100'}`}
+            >
+              全部 <span className="ml-1 opacity-70">{logs.length}</span>
+            </button>
+            {availableActions.map(action => (
+              <button
+                key={action}
+                onClick={() => setActionFilter(action)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-all ${getAuditActionStyle(action)} ${actionFilter === action ? 'ring-2 ring-offset-1 ring-slate-500 shadow-sm' : 'opacity-80 hover:opacity-100'}`}
+              >
+                {action} <span className="ml-1 opacity-70">{actionCounts[action]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto bg-slate-50">
+          {loading ? (
+            <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-400">
+              <Loader className="animate-spin text-indigo-500" size={28}/>
+              <span className="text-sm">正在載入操作紀錄</span>
+            </div>
+          ) : filteredLogs.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400 px-6 text-center">
+              <Search size={30} className="text-slate-300"/>
+              <p className="font-bold text-slate-600">找不到符合條件的紀錄</p>
+              <p className="text-xs">請更換動作分類或搜尋關鍵字</p>
+            </div>
+          ) : (
+            <>
+              <table className="hidden md:table w-full text-left text-xs bg-white">
+                <thead className="bg-slate-100/95 text-slate-500 font-semibold sticky top-0 z-10 border-b border-slate-200 backdrop-blur-sm">
+                  <tr>
+                    <th className="px-5 py-3.5 w-[150px]">時間</th>
+                    <th className="px-4 py-3.5 w-[130px]">帳號</th>
+                    <th className="px-4 py-3.5 w-[90px] text-center">動作</th>
+                    <th className="px-4 py-3.5">產品詳情</th>
+                    <th className="px-5 py-3.5 w-[30%]">變更內容</th>
                   </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredLogs.map(log => (
+                    <tr key={log.id} className="hover:bg-indigo-50/40 transition-colors">
+                      <td className="px-5 py-4 whitespace-nowrap text-slate-500 tabular-nums">{new Date(log.timestamp).toLocaleString('zh-TW')}</td>
+                      <td className="px-4 py-4 font-mono text-blue-600">{formatUserName(log.user)}</td>
+                      <td className="px-4 py-4 text-center"><AuditActionBadge action={log.action}/></td>
+                      <td className="px-4 py-4 font-bold text-slate-700 leading-relaxed">{log.product}</td>
+                      <td className="px-5 py-4 text-slate-500 break-words leading-relaxed">{log.details}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="md:hidden p-3 space-y-3">
+                {filteredLogs.map(log => (
+                  <article key={log.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <div className="flex justify-between items-start gap-3 mb-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-400 tabular-nums">{new Date(log.timestamp).toLocaleString('zh-TW')}</p>
+                        <p className="font-mono text-xs text-blue-600 mt-1 truncate">{formatUserName(log.user)}</p>
+                      </div>
+                      <AuditActionBadge action={log.action}/>
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 leading-relaxed break-words">{log.product}</p>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[10px] font-bold tracking-wider text-slate-400 mb-1">變更內容</p>
+                      <p className="text-xs text-slate-600 leading-relaxed break-words">{log.details}</p>
+                    </div>
+                  </article>
                 ))}
-                {logs.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-400">尚無紀錄</td></tr>}
-              </tbody>
-            </table>
+              </div>
+            </>
           )}
         </div>
       </div>
