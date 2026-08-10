@@ -488,6 +488,21 @@ function CategoryManagerModal({ categories, folder, onClose }) {
   );
 }
 
+// --- 操作紀錄動作標籤配色 ---
+const AUDIT_ACTION_STYLES = {
+  '入庫': 'bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200',
+  '出庫': 'bg-orange-100 text-orange-700 ring-1 ring-inset ring-orange-200',
+  '新增': 'bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-200',
+  '修改': 'bg-violet-100 text-violet-700 ring-1 ring-inset ring-violet-200',
+  '批次修改': 'bg-purple-100 text-purple-700 ring-1 ring-inset ring-purple-200',
+  '匯入': 'bg-cyan-100 text-cyan-700 ring-1 ring-inset ring-cyan-200',
+  '刪除': 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-200',
+};
+
+const getAuditActionStyle = (action) => (
+  AUDIT_ACTION_STYLES[action] || 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200'
+);
+
 // --- 操作紀錄視窗 (Log Modal) ---
 function AuditLogModal({ onClose }) {
   const [logs, setLogs] = useState([]);
@@ -526,7 +541,11 @@ function AuditLogModal({ onClose }) {
                   <tr key={log.id} className="hover:bg-slate-50">
                     <td className="p-3 whitespace-nowrap text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
                     <td className="p-3 font-mono text-blue-600">{formatUserName(log.user)}</td>
-                    <td className="p-3"><span className="px-2 py-0.5 rounded text-[10px] bg-slate-100 font-bold">{log.action}</span></td>
+                    <td className="p-3">
+                      <span className={`inline-flex min-w-[44px] justify-center whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${getAuditActionStyle(log.action)}`}>
+                        {log.action}
+                      </span>
+                    </td>
                     <td className="p-3 font-bold text-slate-700">{log.product}</td>
                     <td className="p-3 text-slate-500 break-all max-w-[250px]">{log.details}</td>
                   </tr>
