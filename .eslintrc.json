@@ -1,3 +1,10 @@
 {
-  "parser": "@typescript-eslint/parser"
+  "extends": "react-app",
+  "globals": {
+    "__firebase_config": "readonly",
+    "__app_id": "readonly"
+  },
+  "rules": {
+    "no-restricted-globals": "off"
+  }
 }
