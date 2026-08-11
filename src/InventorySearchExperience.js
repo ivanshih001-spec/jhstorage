@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  ChevronDown,
   ChevronRight,
   Download,
   Edit3,
   Filter,
   FolderOpen,
-  Image as ImageIcon,
   Package,
   Search,
   ShieldCheck,
