@@ -15,4 +15,3 @@
   .app-shell-v2-layout { display: block; min-height: calc(100vh - 58px); }.app-shell-v2-sidebar { display: none; }.app-shell-v2-content { padding: 18px 14px 30px; }.app-shell-v2-mobile-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: #263750; }
   .app-shell-v2-mobile-nav { height: 74px; padding: 7px 8px 12px; background: #fff; border-top: 1px solid #dfe5ec; position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3,1fr); box-shadow: 0 -5px 18px rgba(24,39,61,.07); }.app-shell-v2-mobile-nav .app-shell-v2-nav-button { min-height: 52px; padding: 4px; flex-direction: column; justify-content: center; gap: 3px; font-size: 11px; }
 }
-
