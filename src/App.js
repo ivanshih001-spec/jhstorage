@@ -1107,6 +1107,20 @@ function TransactionForm({ mode, inventory, categories, onSave, currentUser }) {
     );
   }, [matchingVariants, selectedAttr]);
 
+  const representativePhoto = useMemo(() => {
+    const candidates = targetItem
+      ? [targetItem, ...matchingVariants.filter(item => item.id !== targetItem.id)]
+      : matchingVariants;
+
+    for (const item of candidates) {
+      const photoFromList = Array.isArray(item.photos) ? item.photos.find(Boolean) : '';
+      if (photoFromList) return photoFromList;
+      if (item.photo) return item.photo;
+    }
+
+    return '';
+  }, [matchingVariants, targetItem]);
+
   const handlePartNumberChange = (val) => {
     setFormPartNumber(val);
     setNameError('');
@@ -1224,18 +1238,26 @@ function TransactionForm({ mode, inventory, categories, onSave, currentUser }) {
              <p className="text-lg font-bold text-slate-700">{matchingVariants[0].name}</p>
            </div>
 
-           {/* 顯示產品照片 */}
-           {targetItem && (targetItem.photo || (targetItem.photos && targetItem.photos.length > 0)) && (
-             <div className="flex justify-center mb-4 bg-gray-50 p-2 rounded-lg border border-slate-200">
-               <div className="w-32 h-32 relative bg-white rounded-md border border-slate-200 overflow-hidden">
-                 <img 
-                   src={targetItem.photo || targetItem.photos[0]} 
-                   alt="產品預覽" 
-                   className="w-full h-full object-contain" 
+           {/* 輸入料號後，顯示同料號任一張產品照片供外觀辨識 */}
+           <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3">
+             <div className="mb-2 text-center">
+               <p className="text-xs font-bold text-slate-500">產品外觀參考</p>
+               <p className="text-[10px] text-slate-400">同料號照片，實際品項請依下方規格確認</p>
+             </div>
+             {representativePhoto ? (
+               <div className="mx-auto h-48 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                 <img
+                   src={representativePhoto}
+                   alt={`${formPartNumber.trim()} 產品外觀參考`}
+                   className="h-full w-full object-contain"
                  />
                </div>
-             </div>
-           )}
+             ) : (
+               <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-xs font-medium text-slate-400">
+                 此料號尚無產品照片
+               </div>
+             )}
+           </div>
 
            <div className="grid grid-cols-2 gap-4">
               <div>
