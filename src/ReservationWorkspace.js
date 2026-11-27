@@ -28,6 +28,7 @@ const ROLE_LABELS = {
   admin: '管理員',
   warehouse: '倉管',
   sales: '業務',
+  unassigned: '未設定',
 };
 
 const STATUS_LABELS = {
@@ -67,9 +68,11 @@ export default function ReservationWorkspace({
   currentUser,
   currentRole,
   userRoles,
+  accountDirectory,
   onSave,
   addAuditLog,
   createManagedAccount,
+  updateManagedRole,
 }) {
   const canApprove = currentRole === 'warehouse' || currentRole === 'admin';
   const canManageRoles = currentRole === 'admin';
@@ -83,6 +86,7 @@ export default function ReservationWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [roleForm, setRoleForm] = useState({ account: '', displayName: '', role: 'sales', password: '' });
+  const [pendingRoles, setPendingRoles] = useState({});
 
   useEffect(() => {
     const reservationRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory_reservations');
@@ -121,6 +125,22 @@ export default function ReservationWorkspace({
   }, [activeView, currentRole, currentUser.email, currentUser.uid, reservations]);
 
   const cartTotal = cart.reduce((sum, line) => sum + Number(line.requestedQuantity || 0), 0);
+
+  const managedAccounts = useMemo(() => (accountDirectory || [])
+    .filter((account) => account.authActive !== false)
+    .map((account) => {
+      const profile = userRoles.find((role) => normalizeEmail(role.email) === normalizeEmail(account.email));
+      return {
+        ...account,
+        displayName: profile?.displayName || account.displayName || account.email,
+        role: profile?.active === false ? 'unassigned' : profile?.role || 'unassigned',
+      };
+    })
+    .sort((a, b) => {
+      if (a.role === 'unassigned' && b.role !== 'unassigned') return -1;
+      if (a.role !== 'unassigned' && b.role === 'unassigned') return 1;
+      return String(a.displayName || a.email).localeCompare(String(b.displayName || b.email), 'zh-Hant');
+    }), [accountDirectory, userRoles]);
 
   const addToCart = (item) => {
     const available = availableQuantity(item);
@@ -296,6 +316,22 @@ export default function ReservationWorkspace({
     }
   };
 
+  const saveExistingRole = async (account) => {
+    const role = pendingRoles[account.email] || account.role;
+    try {
+      await updateManagedRole({ email: account.email, role, displayName: account.displayName, uid: account.uid });
+      setPendingRoles((current) => {
+        const next = { ...current };
+        delete next[account.email];
+        return next;
+      });
+      onSave('success', `${account.displayName || account.email} 已設定為${ROLE_LABELS[role]}`);
+    } catch (error) {
+      console.error(error);
+      onSave('error', error.message || '角色變更失敗');
+    }
+  };
+
   const renderCreate = () => (
     <div className="reservation-create-layout">
       <section className="reservation-panel">
@@ -401,15 +437,24 @@ export default function ReservationWorkspace({
         </form>
       </section>
       <section className="reservation-panel">
-        <div className="reservation-panel-title"><ShieldCheck size={21} /><div><h2>已設定帳號</h2><p>共 {userRoles.length} 個角色設定</p></div></div>
+        <div className="reservation-panel-title"><ShieldCheck size={21} /><div><h2>系統帳號目錄</h2><p>共 {managedAccounts.length} 個帳號；未設定優先顯示，Firebase Console 刪除後需重新同步</p></div></div>
         <div className="reservation-role-list">
-          {userRoles.map((profile) => (
-            <div key={profile.id || profile.email}>
-              <div><strong>{profile.displayName || profile.email}</strong><span>{profile.email}</span></div>
-              <span className={`reservation-role-badge is-${profile.role}`}>{ROLE_LABELS[profile.role] || '未設定'}</span>
-              <span>{profile.active === false ? '已停用' : '使用中'}</span>
+          {managedAccounts.length === 0 && <div className="reservation-role-empty">帳號目錄尚未同步</div>}
+          {managedAccounts.map((account) => {
+            const selectedRole = pendingRoles[account.email] || account.role;
+            const isSelf = normalizeEmail(account.email) === normalizeEmail(currentUser.email);
+            return (
+            <div key={account.id || account.email}>
+              <div><strong>{account.displayName || account.email}</strong><span>{account.email}・{(account.providers || []).includes('google.com') ? 'Google' : (account.providers || []).includes('password') ? '密碼登入' : '登入方式待同步'}</span></div>
+              <select value={selectedRole} disabled={isSelf} onChange={(event) => setPendingRoles((current) => ({ ...current, [account.email]: event.target.value }))} aria-label={`${account.displayName || account.email} 角色`}>
+                <option value="unassigned">未設定</option>
+                <option value="sales">業務</option>
+                <option value="warehouse">倉管</option>
+                <option value="admin">管理員</option>
+              </select>
+              <button type="button" disabled={isSelf || selectedRole === account.role} onClick={() => saveExistingRole(account)}>{isSelf ? '目前帳號' : '儲存'}</button>
             </div>
-          ))}
+          );})}
         </div>
       </section>
     </div>
