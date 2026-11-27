@@ -1139,6 +1139,32 @@ export default function App() {
     await addAuditLog('角色變更', normalizedEmail, `角色：${existingRole?.role || '未設定'} → ${role === 'unassigned' ? '未設定' : role}`, user.email);
   };
 
+  const removeManagedAccountFromDirectory = async ({ email, displayName }) => {
+    if (currentRole !== 'admin') throw new Error('只有管理員可以移除帳號目錄');
+    const normalizedEmail = normalizeLoginAccount(email);
+    if (!normalizedEmail) throw new Error('找不到帳號 Email');
+    if (normalizedEmail === user.email?.toLowerCase()) throw new Error('不可移除目前登入中的管理員');
+
+    const directoryRef = doc(db, 'artifacts', appId, 'public', 'data', 'account_directory', normalizedEmail);
+    const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', normalizedEmail);
+    const roleSnapshot = await getDoc(roleRef);
+    const batch = writeBatch(db);
+    batch.set(directoryRef, {
+      authActive: false,
+      removedAt: new Date().toISOString(),
+      removedBy: user.email,
+    }, { merge: true });
+    if (roleSnapshot.exists()) {
+      batch.update(roleRef, {
+        active: false,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.email,
+      });
+    }
+    await batch.commit();
+    await addAuditLog('帳號移除', normalizedEmail, `從系統帳號目錄移除：${displayName || normalizedEmail}`, user.email);
+  };
+
   const handleLogout = () => {
     if (confirm('確定要登出嗎？')) {
       signOut(auth);
@@ -1219,7 +1245,7 @@ export default function App() {
           {activeTab === 'inbound' && <TransactionForm mode="inbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} currentUser={user} />}
-          {activeTab === 'reservation' && <ReservationWorkspace db={db} appId={appId} inventory={inventory} currentUser={user} currentRole={currentRole} userRoles={userRoles} accountDirectory={accountDirectory} onSave={showMsg} addAuditLog={addAuditLog} createManagedAccount={createManagedAccount} updateManagedRole={updateManagedRole} />}
+          {activeTab === 'reservation' && <ReservationWorkspace db={db} appId={appId} inventory={inventory} currentUser={user} currentRole={currentRole} userRoles={userRoles} accountDirectory={accountDirectory} onSave={showMsg} addAuditLog={addAuditLog} createManagedAccount={createManagedAccount} updateManagedRole={updateManagedRole} removeManagedAccountFromDirectory={removeManagedAccountFromDirectory} />}
         </main>
       </div>
 
