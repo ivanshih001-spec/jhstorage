@@ -245,11 +245,17 @@ export default function ReservationWorkspace({
   };
 
   const handleRequest = async (request, nextStatus) => {
-    const actionLabels = { confirmed: '確認調撥', returned: '退回', cancelled: '取消' };
-    if (!window.confirm(`確定要${actionLabels[nextStatus]}暫提單 ${request.requestNumber} 嗎？`)) return;
+    const actionLabels = { confirmed: '確認調撥', returned: '退回', cancelled: '取消', deleted: '刪除' };
+    const confirmation = nextStatus === 'deleted'
+      ? `確定要刪除調撥單 ${request.requestNumber} 嗎？\n\n系統會釋放暫提數量，實際庫存不變；調撥單刪除後無法復原。`
+      : `確定要${actionLabels[nextStatus]}暫提單 ${request.requestNumber} 嗎？`;
+    if (!window.confirm(confirmation)) return;
 
     setIsSubmitting(true);
     const requestRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory_reservations', request.id);
+    const deletionAuditRef = nextStatus === 'deleted'
+      ? doc(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'))
+      : null;
     const now = new Date().toISOString();
     try {
       await runTransaction(db, async (transaction) => {
@@ -288,16 +294,33 @@ export default function ReservationWorkspace({
           transaction.update(itemRef, update);
         }
 
-        transaction.update(requestRef, {
-          status: nextStatus,
-          updatedAt: now,
-          handledAt: now,
-          handledByEmail: currentUser.email,
-        });
+        if (nextStatus === 'deleted') {
+          const deletedLines = (latestRequest.lines || [])
+            .map((line) => `${line.partNumber || line.itemId} × ${Number(line.requestedQuantity || 0)}`)
+            .join('、')
+            .slice(0, 4000);
+          transaction.set(deletionAuditRef, {
+            timestamp: now,
+            user: currentUser.email,
+            action: '暫提刪除',
+            product: latestRequest.requestNumber || request.requestNumber,
+            details: `${latestRequest.customerName || '未填客戶'}；申請人 ${latestRequest.requestedByEmail || '—'}；${(latestRequest.lines || []).length} 項；${deletedLines}`,
+          });
+          transaction.delete(requestRef);
+        } else {
+          transaction.update(requestRef, {
+            status: nextStatus,
+            updatedAt: now,
+            handledAt: now,
+            handledByEmail: currentUser.email,
+          });
+        }
       });
 
-      const auditAction = nextStatus === 'confirmed' ? '暫提調撥' : nextStatus === 'returned' ? '暫提退回' : '暫提取消';
-      await addAuditLog(auditAction, request.requestNumber, `${request.customerName}；${request.lines?.length || 0} 項`, currentUser.email);
+      const auditAction = nextStatus === 'confirmed' ? '暫提調撥' : nextStatus === 'returned' ? '暫提退回' : nextStatus === 'deleted' ? '暫提刪除' : '暫提取消';
+      if (nextStatus !== 'deleted') {
+        await addAuditLog(auditAction, request.requestNumber, `${request.customerName}；${request.lines?.length || 0} 項；申請人 ${request.requestedByEmail || '—'}`, currentUser.email);
+      }
       onSave('success', `${request.requestNumber} 已${actionLabels[nextStatus]}`);
     } catch (error) {
       console.error(error);
@@ -528,7 +551,7 @@ export default function ReservationWorkspace({
             {selectedRequest.status === 'pending' && (
               <div className="reservation-drawer-actions">
                 {(selectedRequest.requestedByUid === currentUser.uid || currentRole === 'admin') && <button type="button" className="is-cancel" disabled={isSubmitting} onClick={() => handleRequest(selectedRequest, 'cancelled')}>取消暫提</button>}
-                {canApprove && <button type="button" className="is-return" disabled={isSubmitting} onClick={() => handleRequest(selectedRequest, 'returned')}>退回業務</button>}
+                {canApprove && <button type="button" className="is-delete" disabled={isSubmitting} onClick={() => handleRequest(selectedRequest, 'deleted')}>刪除調撥單</button>}
                 {canApprove && <button type="button" className="is-confirm" disabled={isSubmitting} onClick={() => handleRequest(selectedRequest, 'confirmed')}><PackageCheck size={18} />確認調撥並扣庫存</button>}
               </div>
             )}
