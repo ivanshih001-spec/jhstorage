@@ -13,7 +13,8 @@ service cloud.firestore {
     function hasActiveRole(appId) {
       return signedIn()
         && exists(rolePath(appId))
-        && get(rolePath(appId)).data.active != false;
+        && get(rolePath(appId)).data.active != false
+        && get(rolePath(appId)).data.uid == request.auth.uid;
     }
 
     function hasRole(appId, expectedRole) {
@@ -37,7 +38,29 @@ service cloud.firestore {
       allow get: if signedIn()
         && (request.auth.token.email == email || isAdmin(appId));
       allow list: if isAdmin(appId);
-      allow create, update, delete: if isAdmin(appId);
+      allow create, update, delete: if isAdmin(appId)
+        && email != request.auth.token.email;
+    }
+
+    match /artifacts/{appId}/public/data/account_directory/{email} {
+      allow get: if signedIn()
+        && (request.auth.token.email == email || isAdmin(appId));
+      allow list: if isAdmin(appId);
+      allow create: if isAdmin(appId)
+        || (signedIn()
+          && request.auth.token.email == email
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.keys()
+            .hasOnly(['email', 'uid', 'displayName', 'lastSeenAt']));
+      allow update: if isAdmin(appId)
+        || (signedIn()
+          && request.auth.token.email == email
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'lastSeenAt']));
+      allow delete: if isAdmin(appId);
     }
 
     match /artifacts/{appId}/public/data/inventory/{itemId} {
