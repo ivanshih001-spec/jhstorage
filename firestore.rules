@@ -103,8 +103,9 @@ service cloud.firestore {
             && resource.data.requestedByUid == request.auth.uid
             && request.resource.data.status == 'cancelled')
           || ((isWarehouse(appId) || isAdmin(appId))
-            && request.resource.data.status in ['confirmed', 'returned', 'cancelled']));
-      allow delete: if false;
+            && request.resource.data.status in ['confirmed', 'cancelled']));
+      allow delete: if resource.data.status == 'pending'
+        && (isWarehouse(appId) || isAdmin(appId));
     }
 
     match /artifacts/{appId}/public/data/settings/{settingId} {
