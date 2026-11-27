@@ -73,6 +73,7 @@ export default function ReservationWorkspace({
   addAuditLog,
   createManagedAccount,
   updateManagedRole,
+  removeManagedAccountFromDirectory,
 }) {
   const canApprove = currentRole === 'warehouse' || currentRole === 'admin';
   const canManageRoles = currentRole === 'admin';
@@ -159,6 +160,7 @@ export default function ReservationWorkspace({
         spec: item.spec || '',
         size: item.size || '',
         color: item.color || '',
+        remarks: item.remarks || '',
         photo: getPhoto(item),
         requestedQuantity: 1,
       }];
@@ -260,16 +262,21 @@ export default function ReservationWorkspace({
         for (const line of latestRequest.lines || []) {
           const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', line.itemId);
           const itemSnapshot = await transaction.get(itemRef);
-          if (!itemSnapshot.exists()) throw new Error(`${line.partNumber} 已不存在`);
+          if (!itemSnapshot.exists()) {
+            if (nextStatus === 'confirmed') throw new Error(`${line.partNumber} 已不存在，無法確認調撥`);
+            snapshots.push({ line, itemRef, item: null });
+            continue;
+          }
           snapshots.push({ line, itemRef, item: itemSnapshot.data() });
         }
 
         for (const { line, itemRef, item } of snapshots) {
+          if (!item) continue;
           const requested = Number(line.requestedQuantity || 0);
           const reserved = Number(item.reservedQuantity || 0);
-          if (reserved < requested) throw new Error(`${line.partNumber} 暫提數量不一致，請聯絡管理員`);
+          if (nextStatus === 'confirmed' && reserved < requested) throw new Error(`${line.partNumber} 暫提數量不一致，無法確認調撥`);
           const update = {
-            reservedQuantity: reserved - requested,
+            reservedQuantity: Math.max(0, reserved - requested),
             lastUpdated: now,
             lastEditor: currentUser.email,
           };
@@ -294,7 +301,10 @@ export default function ReservationWorkspace({
       onSave('success', `${request.requestNumber} 已${actionLabels[nextStatus]}`);
     } catch (error) {
       console.error(error);
-      onSave('error', error.message || '處理暫提單失敗');
+      const message = error.code === 'permission-denied'
+        ? '權限不足：請重新登入，並確認此帳號仍為有效倉管角色'
+        : error.message || '處理暫提單失敗';
+      onSave('error', message);
     } finally {
       setIsSubmitting(false);
     }
@@ -329,6 +339,18 @@ export default function ReservationWorkspace({
     } catch (error) {
       console.error(error);
       onSave('error', error.message || '角色變更失敗');
+    }
+  };
+
+  const removeExistingAccount = async (account) => {
+    const confirmed = window.confirm(`請先確認已在 Firebase Authentication 刪除 ${account.email}。\n\n此操作只會從角色管理清單移除並停用角色，保留稽核紀錄。是否繼續？`);
+    if (!confirmed) return;
+    try {
+      await removeManagedAccountFromDirectory(account);
+      onSave('success', `${account.displayName || account.email} 已從帳號目錄移除`);
+    } catch (error) {
+      console.error(error);
+      onSave('error', error.message || '帳號目錄移除失敗');
     }
   };
 
@@ -452,7 +474,10 @@ export default function ReservationWorkspace({
                 <option value="warehouse">倉管</option>
                 <option value="admin">管理員</option>
               </select>
-              <button type="button" disabled={isSelf || selectedRole === account.role} onClick={() => saveExistingRole(account)}>{isSelf ? '目前帳號' : '儲存'}</button>
+              <div className="reservation-role-actions">
+                <button type="button" disabled={isSelf || selectedRole === account.role} onClick={() => saveExistingRole(account)}>{isSelf ? '目前帳號' : '儲存'}</button>
+                {!isSelf && <button type="button" className="is-remove" onClick={() => removeExistingAccount(account)}>從清單移除</button>}
+              </div>
             </div>
           );})}
         </div>
@@ -484,9 +509,21 @@ export default function ReservationWorkspace({
             <div className="reservation-drawer-head"><div><span>暫提單明細</span><strong>{selectedRequest.requestNumber}</strong></div><button type="button" onClick={() => setSelectedRequest(null)}><X size={20} /></button></div>
             <div className="reservation-drawer-overview"><StatusBadge status={selectedRequest.status} /><h2>{selectedRequest.customerName}</h2><p>申請人：{selectedRequest.requestedByName || selectedRequest.requestedByEmail}</p><p>申請時間：{formatDateTime(selectedRequest.createdAt)}</p><p>預計出貨：{selectedRequest.expectedShipDate || '未設定'}</p>{selectedRequest.notes && <p>備註：{selectedRequest.notes}</p>}</div>
             <div className="reservation-drawer-lines">
-              {(selectedRequest.lines || []).map((line) => (
-                <div key={line.itemId}><ProductPhoto item={inventory.find((item) => item.id === line.itemId) || line} /><div><strong>{line.partNumber}</strong><span>{line.name}・{line.material || '—'}・{line.size || line.spec || '—'}</span></div><b>{Number(line.requestedQuantity || 0).toLocaleString()} PCS</b></div>
-              ))}
+              {(selectedRequest.lines || []).map((line) => {
+                const currentItem = inventory.find((item) => item.id === line.itemId);
+                const product = currentItem || line;
+                return (
+                  <div key={line.itemId}>
+                    <ProductPhoto item={product} />
+                    <div>
+                      <strong>{line.partNumber}</strong>
+                      <span>{line.name}・尺寸 {line.size || '—'}・材質 {line.material || '—'}{line.spec ? ` ${line.spec}` : ''}・顏色 {line.color || '—'}</span>
+                      <small>庫存備註：{currentItem?.remarks || line.remarks || '無'}</small>
+                    </div>
+                    <b>{Number(line.requestedQuantity || 0).toLocaleString()} PCS</b>
+                  </div>
+                );
+              })}
             </div>
             {selectedRequest.status === 'pending' && (
               <div className="reservation-drawer-actions">
