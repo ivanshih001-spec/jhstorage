@@ -975,6 +975,7 @@ export default function App() {
       email,
       uid: user.uid,
       displayName: user.displayName || formatUserName(email).toUpperCase(),
+      authActive: true,
       lastSeenAt: new Date().toISOString(),
     }, { merge: true }).catch((error) => console.error('Account directory sync failed:', error));
   }, [user]);
