@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import InventorySearchExperience from './InventorySearchExperience';
 import ReservationWorkspace from './ReservationWorkspace';
 import './AppShellV2.css';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { 
-  getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection, 
   doc, 
   setDoc, 
@@ -17,6 +19,7 @@ import {
   orderBy,  
   limit,
   getDoc,
+  getDocs,
   runTransaction
 } from 'firebase/firestore';
 import { 
@@ -90,7 +93,10 @@ if (typeof __firebase_config !== 'undefined') {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// 共用 IndexedDB 快取，避免同一使用者開啟多個分頁或短時間重新整理時重複整批讀取。
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 const provisioningApp = getApps().some((candidate) => candidate.name === 'jhstorage-user-provisioning')
   ? getApp('jhstorage-user-provisioning')
   : initializeApp(firebaseConfig, 'jhstorage-user-provisioning');
@@ -534,12 +540,17 @@ function AuditLogModal({ onClose }) {
   const [actionFilter, setActionFilter] = useState('全部');
 
   useEffect(() => {
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), orderBy('timestamp', 'desc'), limit(500));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    let active = true;
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'audit_logs'), orderBy('timestamp', 'desc'), limit(50));
+    getDocs(q).then((snapshot) => {
+      if (!active) return;
       setLogs(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
       setLoading(false);
+    }).catch((error) => {
+      console.error('Audit log load failed:', error);
+      if (active) setLoading(false);
     });
-    return () => unsubscribe();
+    return () => { active = false; };
   }, []);
 
   const actionCounts = useMemo(() => {
@@ -934,12 +945,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('inbound'); 
   const [inventory, setInventory] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES); 
-  const [onlineUsers, setOnlineUsers] = useState([]); 
   const [userRoles, setUserRoles] = useState([]);
   const [accountDirectory, setAccountDirectory] = useState([]);
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+  const currentRoleProfile = userRoles.find((profile) => profile.email?.toLowerCase() === user?.email?.toLowerCase() && profile.uid === user?.uid && profile.active !== false);
+  const currentRole = currentRoleProfile?.role || '';
+  const showMsg = useCallback((type, text) => {
+    setNotification({ type, text });
+  }, []);
 
   // 0. 自動載入 Tailwind CSS
   useEffect(() => {
@@ -980,9 +995,9 @@ export default function App() {
     }, { merge: true }).catch((error) => console.error('Account directory sync failed:', error));
   }, [user]);
 
-  // 2. 監聽資料庫與線上狀態
+  // 2. 角色確認後才監聽庫存與分類。跨分頁由 Firestore 持久快取共用連線與資料。
   useEffect(() => {
-    if (!user) return;
+    if (!user || !rolesLoaded || !currentRole) return undefined;
 
     // A. 監聽庫存
     const inventoryRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventory');
@@ -1006,24 +1021,11 @@ export default function App() {
        }
     });
 
-    // C. 線上狀態
-    const presenceRef = doc(db, 'artifacts', appId, 'public', 'data', 'presence', user.uid);
-    const updatePresence = () => setDoc(presenceRef, { email: user.email, lastSeen: new Date().toISOString() }, { merge: true });
-    updatePresence();
-    const interval = setInterval(updatePresence, 60000); 
-
-    // D. 監聽其他使用者
-    const presenceColl = collection(db, 'artifacts', appId, 'public', 'data', 'presence');
-    const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
-      const now = new Date();
-      setOnlineUsers(snapshot.docs.map(d => ({id: d.id, ...d.data()})).filter(u => (now - new Date(u.lastSeen)) < 120000 && u.id !== user.uid));
-    });
-
     return () => {
-      unsubInv(); unsubCat(); clearInterval(interval); unsubPresence();
-      deleteDoc(presenceRef).catch(()=>{}); 
+      unsubInv();
+      unsubCat();
     };
-  }, [user]);
+  }, [currentRole, rolesLoaded, showMsg, user]);
 
   // 3. 每位使用者只讀取自己的角色；管理員確認身分後再載入完整名單。
   useEffect(() => {
@@ -1043,10 +1045,7 @@ export default function App() {
       setRolesLoaded(true);
       showMsg('error', '無法讀取帳號角色設定');
     });
-  }, [user]);
-
-  const currentRoleProfile = userRoles.find((profile) => profile.email?.toLowerCase() === user?.email?.toLowerCase() && profile.uid === user?.uid && profile.active !== false);
-  const currentRole = currentRoleProfile?.role || '';
+  }, [showMsg, user]);
 
   useEffect(() => {
     if (!user || currentRole !== 'admin') return undefined;
@@ -1065,16 +1064,12 @@ export default function App() {
       showMsg('error', '無法讀取帳號目錄');
     });
     return () => { unsubRoles(); unsubDirectory(); };
-  }, [currentRole, user]);
+  }, [currentRole, showMsg, user]);
 
   useEffect(() => {
     if (!rolesLoaded || !currentRole) return;
     if (currentRole === 'sales' && ['inbound', 'outbound'].includes(activeTab)) setActiveTab('search');
   }, [activeTab, currentRole, rolesLoaded]);
-
-  const showMsg = (type, text) => {
-    setNotification({ type, text });
-  };
 
   const createManagedAccount = async ({ account, password, displayName, role }) => {
     if (currentRole !== 'admin') throw new Error('只有管理員可以新增帳號');
@@ -1223,7 +1218,6 @@ export default function App() {
           </div>
         </div>
         <div className="app-shell-v2-account-area">
-          {onlineUsers.length > 0 && <span className="app-shell-v2-online">{onlineUsers.length} 人在線</span>}
           <div className="app-shell-v2-user"><User size={17} /><span>{currentRoleProfile?.displayName || formatUserName(user.email)}</span></div>
           <button type="button" onClick={handleLogout} className="app-shell-v2-logout" aria-label="登出"><LogOut size={19} /></button>
         </div>
@@ -2206,4 +2200,3 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     </div>
   );
 }
-
