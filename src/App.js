@@ -936,6 +936,7 @@ export default function App() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES); 
   const [onlineUsers, setOnlineUsers] = useState([]); 
   const [userRoles, setUserRoles] = useState([]);
+  const [accountDirectory, setAccountDirectory] = useState([]);
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
@@ -965,6 +966,18 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // 登入後登記最小帳號資料，讓管理員可看到尚未設定角色的使用者。
+  useEffect(() => {
+    if (!user?.email) return;
+    const email = user.email.toLowerCase();
+    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'account_directory', email), {
+      email,
+      uid: user.uid,
+      displayName: user.displayName || formatUserName(email).toUpperCase(),
+      lastSeenAt: new Date().toISOString(),
+    }, { merge: true }).catch((error) => console.error('Account directory sync failed:', error));
+  }, [user]);
 
   // 2. 監聽資料庫與線上狀態
   useEffect(() => {
@@ -1031,18 +1044,26 @@ export default function App() {
     });
   }, [user]);
 
-  const currentRoleProfile = userRoles.find((profile) => profile.email?.toLowerCase() === user?.email?.toLowerCase() && profile.active !== false);
+  const currentRoleProfile = userRoles.find((profile) => profile.email?.toLowerCase() === user?.email?.toLowerCase() && profile.uid === user?.uid && profile.active !== false);
   const currentRole = currentRoleProfile?.role || '';
 
   useEffect(() => {
     if (!user || currentRole !== 'admin') return undefined;
     const rolesRef = collection(db, 'artifacts', appId, 'public', 'data', 'user_roles');
-    return onSnapshot(rolesRef, (snapshot) => {
+    const directoryRef = collection(db, 'artifacts', appId, 'public', 'data', 'account_directory');
+    const unsubRoles = onSnapshot(rolesRef, (snapshot) => {
       setUserRoles(snapshot.docs.map(roleDoc => ({ id: roleDoc.id, ...roleDoc.data() })));
     }, (err) => {
       console.error(err);
       showMsg('error', '無法讀取完整帳號名單');
     });
+    const unsubDirectory = onSnapshot(directoryRef, (snapshot) => {
+      setAccountDirectory(snapshot.docs.map(accountDoc => ({ id: accountDoc.id, ...accountDoc.data() })));
+    }, (err) => {
+      console.error(err);
+      showMsg('error', '無法讀取帳號目錄');
+    });
+    return () => { unsubRoles(); unsubDirectory(); };
   }, [currentRole, user]);
 
   useEffect(() => {
@@ -1073,10 +1094,48 @@ export default function App() {
         updatedAt: new Date().toISOString(),
         updatedBy: user.email,
       }, { merge: true });
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'account_directory', email), {
+        email,
+        uid: credential.user.uid,
+        displayName: String(displayName || '').trim() || formatUserName(email).toUpperCase(),
+        providers: ['password'],
+        authActive: true,
+        lastSeenAt: new Date().toISOString(),
+      }, { merge: true });
     } finally {
       await signOut(provisioningAuth).catch(() => {});
     }
     return email;
+  };
+
+  const updateManagedRole = async ({ email, role, displayName, uid }) => {
+    if (currentRole !== 'admin') throw new Error('只有管理員可以變更角色');
+    const normalizedEmail = normalizeLoginAccount(email);
+    if (!normalizedEmail) throw new Error('找不到帳號 Email');
+    if (normalizedEmail === user.email?.toLowerCase()) throw new Error('不可變更目前登入中的管理員角色');
+    if (!['admin', 'warehouse', 'sales', 'unassigned'].includes(role)) throw new Error('角色設定不正確');
+
+    const existingRole = userRoles.find((profile) => profile.email?.toLowerCase() === normalizedEmail);
+    if (existingRole?.role === 'admin' && role !== 'admin') {
+      const validEmails = new Set(accountDirectory.map((account) => account.email?.toLowerCase()));
+      const adminCount = userRoles.filter((profile) => profile.role === 'admin' && profile.active !== false && validEmails.has(profile.email?.toLowerCase())).length;
+      if (adminCount <= 1) throw new Error('系統至少需要保留一位管理員');
+    }
+
+    if (role === 'unassigned') {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', normalizedEmail));
+    } else {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', normalizedEmail), {
+        email: normalizedEmail,
+        uid: uid || existingRole?.uid || '',
+        displayName: displayName || existingRole?.displayName || formatUserName(normalizedEmail),
+        role,
+        active: true,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.email,
+      }, { merge: true });
+    }
+    await addAuditLog('角色變更', normalizedEmail, `角色：${existingRole?.role || '未設定'} → ${role === 'unassigned' ? '未設定' : role}`, user.email);
   };
 
   const handleLogout = () => {
@@ -1159,7 +1218,7 @@ export default function App() {
           {activeTab === 'inbound' && <TransactionForm mode="inbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} currentUser={user} />}
-          {activeTab === 'reservation' && <ReservationWorkspace db={db} appId={appId} inventory={inventory} currentUser={user} currentRole={currentRole} userRoles={userRoles} onSave={showMsg} addAuditLog={addAuditLog} createManagedAccount={createManagedAccount} />}
+          {activeTab === 'reservation' && <ReservationWorkspace db={db} appId={appId} inventory={inventory} currentUser={user} currentRole={currentRole} userRoles={userRoles} accountDirectory={accountDirectory} onSave={showMsg} addAuditLog={addAuditLog} createManagedAccount={createManagedAccount} updateManagedRole={updateManagedRole} />}
         </main>
       </div>
 
