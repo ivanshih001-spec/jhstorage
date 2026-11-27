@@ -79,7 +79,9 @@ service cloud.firestore {
             .hasOnly(['quantity', 'reservedQuantity', 'lastUpdated', 'lastEditor'])
           && request.resource.data.quantity >= 0
           && request.resource.data.reservedQuantity >= 0
-          && request.resource.data.reservedQuantity <= request.resource.data.quantity)
+          && (request.resource.data.reservedQuantity <= request.resource.data.quantity
+            || (request.resource.data.quantity == resource.data.quantity
+              && request.resource.data.reservedQuantity <= resource.data.reservedQuantity)))
         || (isSales(appId)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['reservedQuantity', 'lastUpdated', 'lastEditor'])
