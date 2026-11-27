@@ -51,15 +51,22 @@ service cloud.firestore {
           && request.auth.token.email == email
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.uid == request.auth.uid
+          && request.resource.data.authActive == true
           && request.resource.data.keys()
-            .hasOnly(['email', 'uid', 'displayName', 'lastSeenAt']));
+            .hasOnly(['email', 'uid', 'displayName', 'authActive', 'lastSeenAt']));
       allow update: if isAdmin(appId)
         || (signedIn()
           && request.auth.token.email == email
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.uid == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['displayName', 'lastSeenAt']));
+          && request.resource.data.authActive == true
+          && ((resource.data.uid == request.auth.uid
+              && resource.data.authActive != false
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['displayName', 'authActive', 'lastSeenAt']))
+            || (resource.data.authActive == false
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['uid', 'displayName', 'authActive', 'lastSeenAt']))));
       allow delete: if isAdmin(appId);
     }
 
