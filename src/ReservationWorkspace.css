@@ -25,4 +25,5 @@
 .reservation-role-actions .is-remove { color:#9b313b; background:#fdecee; }
 .reservation-drawer-lines small { margin-top:3px; color:#5f6f80; font-size:10px; white-space:normal; }
 @media(max-width:760px){.reservation-role-list>div { grid-template-columns:minmax(0,1fr) 96px; }.reservation-role-actions { grid-column:1/-1; grid-template-columns:1fr 1fr; }.reservation-role-list .reservation-role-actions button { grid-column:auto; }}
+.reservation-drawer-actions .is-delete { color:#fff; background:#b42335; }
 
