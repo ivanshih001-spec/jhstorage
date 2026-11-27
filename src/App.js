@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import InventorySearchExperience from './InventorySearchExperience';
+import ReservationWorkspace from './ReservationWorkspace';
 import './AppShellV2.css';
-import { initializeApp } from 'firebase/app';
+import { getApp, getApps, initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
   collection, 
   doc, 
   setDoc, 
   updateDoc, 
-  increment, 
   onSnapshot,
   deleteDoc,
   writeBatch,
@@ -16,10 +16,12 @@ import {
   query,    
   orderBy,  
   limit,
-  getDoc
+  getDoc,
+  runTransaction
 } from 'firebase/firestore';
 import { 
   getAuth, 
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword, 
   signInWithPopup,      
   GoogleAuthProvider,   
@@ -58,7 +60,8 @@ import {
   ArrowUp,     
   ArrowDown,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ClipboardList
 } from 'lucide-react';
 
 // ==========================================
@@ -88,6 +91,10 @@ if (typeof __firebase_config !== 'undefined') {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const provisioningApp = getApps().some((candidate) => candidate.name === 'jhstorage-user-provisioning')
+  ? getApp('jhstorage-user-provisioning')
+  : initializeApp(firebaseConfig, 'jhstorage-user-provisioning');
+const provisioningAuth = getAuth(provisioningApp);
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-master-system-v3';
 
@@ -100,6 +107,12 @@ const DEFAULT_CATEGORIES = ['零件', '成品'];
 const formatUserName = (email) => {
   if (!email) return 'Guest';
   return email.split('@')[0];
+};
+
+const normalizeLoginAccount = (account) => {
+  const normalized = String(account || '').trim().toLowerCase();
+  if (!normalized) return '';
+  return normalized.includes('@') ? normalized : `${normalized}@ji-horng.local`;
 };
 
 // --- 工具函式：日期格式化 (MM/DD HH:mm) ---
@@ -493,13 +506,17 @@ const AUDIT_ACTION_STYLES = {
   '批次修改': 'bg-purple-100 text-purple-700 ring-1 ring-inset ring-purple-200',
   '匯入': 'bg-cyan-100 text-cyan-700 ring-1 ring-inset ring-cyan-200',
   '刪除': 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-200',
+  '庫存暫提': 'bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-200',
+  '暫提調撥': 'bg-green-100 text-green-700 ring-1 ring-inset ring-green-200',
+  '暫提退回': 'bg-rose-100 text-rose-700 ring-1 ring-inset ring-rose-200',
+  '暫提取消': 'bg-slate-200 text-slate-700 ring-1 ring-inset ring-slate-300',
 };
 
 const getAuditActionStyle = (action) => (
   AUDIT_ACTION_STYLES[action] || 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200'
 );
 
-const AUDIT_ACTION_ORDER = ['入庫', '出庫', '新增', '修改', '批次修改', '匯入', '刪除'];
+const AUDIT_ACTION_ORDER = ['入庫', '出庫', '庫存暫提', '暫提調撥', '暫提退回', '暫提取消', '新增', '修改', '批次修改', '匯入', '刪除'];
 
 function AuditActionBadge({ action }) {
   return (
@@ -765,7 +782,7 @@ function ImagePreviewModal({ images, onClose }) {
 
 // --- 登入畫面組件 ---
 function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -781,7 +798,7 @@ function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, normalizeLoginAccount(account), password);
     } catch (err) {
       console.error(err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
@@ -838,14 +855,16 @@ function LoginPage() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-600 mb-1">Email</label>
+            <label className="block text-sm font-bold text-slate-600 mb-1">帳號或 Email</label>
             <input 
-              type="email" 
+              type="text" 
               required
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              value={account}
+              onChange={e => setAccount(e.target.value)}
               className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-              placeholder="user@example.com"
+              placeholder="例如：EDITH 或 user@example.com"
+              autoCapitalize="none"
+              autoComplete="username"
             />
           </div>
           <div>
@@ -916,6 +935,8 @@ export default function App() {
   const [inventory, setInventory] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES); 
   const [onlineUsers, setOnlineUsers] = useState([]); 
+  const [userRoles, setUserRoles] = useState([]);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
   const [, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
 
@@ -990,8 +1011,72 @@ export default function App() {
     };
   }, [user]);
 
+  // 3. 每位使用者只讀取自己的角色；管理員確認身分後再載入完整名單。
+  useEffect(() => {
+    if (!user?.email) {
+      setUserRoles([]);
+      setRolesLoaded(false);
+      return undefined;
+    }
+    setRolesLoaded(false);
+    const email = user.email.toLowerCase();
+    const ownRoleRef = doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', email);
+    return onSnapshot(ownRoleRef, (snapshot) => {
+      setUserRoles(snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() }] : []);
+      setRolesLoaded(true);
+    }, (err) => {
+      console.error(err);
+      setRolesLoaded(true);
+      showMsg('error', '無法讀取帳號角色設定');
+    });
+  }, [user]);
+
+  const currentRoleProfile = userRoles.find((profile) => profile.email?.toLowerCase() === user?.email?.toLowerCase() && profile.active !== false);
+  const currentRole = currentRoleProfile?.role || '';
+
+  useEffect(() => {
+    if (!user || currentRole !== 'admin') return undefined;
+    const rolesRef = collection(db, 'artifacts', appId, 'public', 'data', 'user_roles');
+    return onSnapshot(rolesRef, (snapshot) => {
+      setUserRoles(snapshot.docs.map(roleDoc => ({ id: roleDoc.id, ...roleDoc.data() })));
+    }, (err) => {
+      console.error(err);
+      showMsg('error', '無法讀取完整帳號名單');
+    });
+  }, [currentRole, user]);
+
+  useEffect(() => {
+    if (!rolesLoaded || !currentRole) return;
+    if (currentRole === 'sales' && ['inbound', 'outbound'].includes(activeTab)) setActiveTab('search');
+  }, [activeTab, currentRole, rolesLoaded]);
+
   const showMsg = (type, text) => {
     setNotification({ type, text });
+  };
+
+  const createManagedAccount = async ({ account, password, displayName, role }) => {
+    if (currentRole !== 'admin') throw new Error('只有管理員可以新增帳號');
+    if (!['sales', 'warehouse'].includes(role)) throw new Error('只能新增業務或倉管帳號');
+    const email = normalizeLoginAccount(account);
+    if (!email) throw new Error('請輸入帳號');
+    if (String(password || '').length < 6) throw new Error('密碼至少需要 6 碼');
+
+    const credential = await createUserWithEmailAndPassword(provisioningAuth, email, password);
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'user_roles', email), {
+        email,
+        uid: credential.user.uid,
+        displayName: String(displayName || '').trim() || formatUserName(email).toUpperCase(),
+        role,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.email,
+      }, { merge: true });
+    } finally {
+      await signOut(provisioningAuth).catch(() => {});
+    }
+    return email;
   };
 
   const handleLogout = () => {
@@ -1011,6 +1096,27 @@ export default function App() {
   if (!user) {
     return <LoginPage />;
   }
+
+  if (!rolesLoaded) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader className="animate-spin text-indigo-600" size={40} /></div>;
+  }
+
+  if (!currentRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 font-['Microsoft_JhengHei']">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-lg">
+          <AlertTriangle className="mx-auto mb-4 text-amber-500" size={42} />
+          <h1 className="mb-2 text-xl font-bold text-slate-800">帳號尚未設定角色</h1>
+          <p className="mb-1 text-sm text-slate-500">{user.email}</p>
+          <p className="mb-6 text-sm text-slate-500">請由管理員在「庫存暫提 → 角色管理」設定為業務、倉管或管理員。</p>
+          <button type="button" onClick={handleLogout} className="rounded-xl bg-slate-800 px-5 py-2.5 font-bold text-white">登出</button>
+        </div>
+      </div>
+    );
+  }
+
+  const canOperateStock = currentRole === 'admin' || currentRole === 'warehouse';
+  const tabTitle = activeTab === 'inbound' ? '入庫作業' : activeTab === 'outbound' ? '出庫作業' : activeTab === 'reservation' ? '庫存暫提' : '庫存查詢';
 
   return (
     <div className="app-shell-v2">
@@ -1032,7 +1138,7 @@ export default function App() {
         </div>
         <div className="app-shell-v2-account-area">
           {onlineUsers.length > 0 && <span className="app-shell-v2-online">{onlineUsers.length} 人在線</span>}
-          <div className="app-shell-v2-user"><User size={17} /><span>{formatUserName(user.email)}</span></div>
+          <div className="app-shell-v2-user"><User size={17} /><span>{currentRoleProfile?.displayName || formatUserName(user.email)}</span></div>
           <button type="button" onClick={handleLogout} className="app-shell-v2-logout" aria-label="登出"><LogOut size={19} /></button>
         </div>
       </header>
@@ -1040,25 +1146,28 @@ export default function App() {
       <div className="app-shell-v2-layout">
         <aside className="app-shell-v2-sidebar">
           <nav aria-label="主要功能">
-            <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={20}/>} label="入庫作業" />
-            <NavButton active={activeTab === 'outbound'} onClick={() => setActiveTab('outbound')} icon={<MinusCircle size={20}/>} label="出庫作業" />
+            {canOperateStock && <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={20}/>} label="入庫作業" />}
+            {canOperateStock && <NavButton active={activeTab === 'outbound'} onClick={() => setActiveTab('outbound')} icon={<MinusCircle size={20}/>} label="出庫作業" />}
             <NavButton active={activeTab === 'search'} onClick={() => setActiveTab('search')} icon={<Search size={20}/>} label="庫存查詢" />
+            <NavButton active={activeTab === 'reservation'} onClick={() => setActiveTab('reservation')} icon={<ClipboardList size={20}/>} label="庫存暫提" />
           </nav>
-          <div className="app-shell-v2-version"><Database size={15} /><span>系統版本 v260811</span></div>
+          <div className="app-shell-v2-version"><Database size={15} /><span>系統版本 v261127</span></div>
         </aside>
 
         <main className="app-shell-v2-content">
-          <div className="app-shell-v2-mobile-heading"><Package size={19} /><strong>{activeTab === 'inbound' ? '入庫作業' : activeTab === 'outbound' ? '出庫作業' : '庫存查詢'}</strong></div>
+          <div className="app-shell-v2-mobile-heading"><Package size={19} /><strong>{tabTitle}</strong></div>
           {activeTab === 'inbound' && <TransactionForm mode="inbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'outbound' && <TransactionForm mode="outbound" inventory={inventory} categories={categories} onSave={showMsg} currentUser={user} />}
           {activeTab === 'search' && <InventorySearch inventory={inventory} onSave={showMsg} isDemoEnv={isDemoEnv} currentUser={user} />}
+          {activeTab === 'reservation' && <ReservationWorkspace db={db} appId={appId} inventory={inventory} currentUser={user} currentRole={currentRole} userRoles={userRoles} onSave={showMsg} addAuditLog={addAuditLog} createManagedAccount={createManagedAccount} />}
         </main>
       </div>
 
       <nav className="app-shell-v2-mobile-nav" aria-label="手機版主要功能">
-        <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={22}/>} label="入庫" />
-        <NavButton active={activeTab === 'outbound'} onClick={() => setActiveTab('outbound')} icon={<MinusCircle size={22}/>} label="出庫" />
+        {canOperateStock && <NavButton active={activeTab === 'inbound'} onClick={() => setActiveTab('inbound')} icon={<PlusCircle size={22}/>} label="入庫" />}
+        {canOperateStock && <NavButton active={activeTab === 'outbound'} onClick={() => setActiveTab('outbound')} icon={<MinusCircle size={22}/>} label="出庫" />}
         <NavButton active={activeTab === 'search'} onClick={() => setActiveTab('search')} icon={<Search size={22}/>} label="庫存查詢" />
+        <NavButton active={activeTab === 'reservation'} onClick={() => setActiveTab('reservation')} icon={<ClipboardList size={22}/>} label="暫提" />
       </nav>
     </div>
   );
@@ -1162,25 +1271,31 @@ function TransactionForm({ mode, inventory, categories, onSave, currentUser }) {
     setIsSubmitting(true);
     try {
       if (targetItem) {
-        const finalQty = mode === 'inbound' ? qty : -qty;
-        
-        if (mode === 'outbound' && targetItem.quantity < qty) {
-          onSave('error', `庫存不足！剩 ${targetItem.quantity}`);
-          setIsSubmitting(false);
-          return;
-        }
-
         const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'inventory', targetItem.id);
-        await updateDoc(itemRef, { 
-            quantity: increment(finalQty), 
+        let beforeQuantity = Number(targetItem.quantity || 0);
+        let afterQuantity = beforeQuantity;
+        await runTransaction(db, async (transaction) => {
+          const latestSnapshot = await transaction.get(itemRef);
+          if (!latestSnapshot.exists()) throw new Error('此品項已不存在');
+          const latestItem = latestSnapshot.data();
+          beforeQuantity = Number(latestItem.quantity || 0);
+          const reservedQuantity = Number(latestItem.reservedQuantity || 0);
+          const available = Math.max(0, beforeQuantity - reservedQuantity);
+          if (mode === 'outbound' && available < qty) {
+            throw new Error(`可用庫存不足！實際 ${beforeQuantity}、已暫提 ${reservedQuantity}、可用 ${available}`);
+          }
+          afterQuantity = mode === 'inbound' ? beforeQuantity + qty : beforeQuantity - qty;
+          transaction.update(itemRef, {
+            quantity: afterQuantity,
             lastUpdated: new Date().toISOString(),
             lastEditor: currentUser.email 
+          });
         });
 
         await addAuditLog(
             mode === 'inbound' ? '入庫' : '出庫', 
             getProductIdentity(targetItem), 
-            `庫存: ${targetItem.quantity} -> ${targetItem.quantity + finalQty} (變動: ${qty})`, 
+            `庫存: ${beforeQuantity} -> ${afterQuantity} (變動: ${qty})`, 
             currentUser.email
         );
         
@@ -1193,7 +1308,7 @@ function TransactionForm({ mode, inventory, categories, onSave, currentUser }) {
       }
     } catch (err) {
       console.error(err);
-      onSave('error', `操作失敗`);
+      onSave('error', err.message || '操作失敗');
     } finally {
       setIsSubmitting(false);
     }
@@ -2005,3 +2120,4 @@ function InventorySearch({ inventory, onSave, isDemoEnv, currentUser }) {
     </div>
   );
 }
+
